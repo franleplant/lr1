@@ -92,7 +92,7 @@ impl Grammar {
                           symbols.push(from);
                           symbols
                       })
-            .filter(|symbol| self.is_terminal(symbol))
+            .filter(|symbol| !self.non_terminals.contains(symbol))
             .collect()
     }
 
@@ -156,11 +156,28 @@ impl Grammar {
     }
 
     pub fn is_terminal(&self, symbol: &String) -> bool {
-        !self.is_non_terminal(symbol)
+        self.terminals.contains(symbol)
     }
 
-    pub fn first_of(&self, symbols: &Vec<String>) -> Option<&HashSet<String>> {
-        symbols.get(0).and_then(|symbol| self.first_map.get(symbol))
+    pub fn first_of(&self, symbols: &Vec<String>) -> Option<HashSet<String>> {
+        let mut first = HashSet::new();
+
+        let first_by_symbol = symbols
+            .iter()
+            .map(|symbol| self.first_map.get(symbol))
+            .map(|opt| {
+                     opt.expect(&*format!("Something went wrong when finding frist of {:?}",
+                                         symbols))
+                 });
+
+        for symbol_first in first_by_symbol {
+            first = first.union(symbol_first).cloned().collect();
+            if !symbol_first.contains(LAMBDA) {
+                return Some(first);
+            }
+        }
+
+        if first.is_empty() { None } else { Some(first) }
     }
 }
 
@@ -204,25 +221,37 @@ mod tests {
                        .map(|s| s.to_string())
                        .collect());
 
-        for t in g.terminals {
-            assert_eq!(g.first_map.get(&t).unwrap(),
-                       &vec![t].iter().cloned().collect::<HashSet<String>>());
+        for t in &g.terminals {
+            assert_eq!(g.first_map.get(t).unwrap(),
+                       &vec![t.clone()].iter().cloned().collect::<HashSet<String>>());
         }
 
 
-        let cases = vec![
-            ("Goal", vec!["(", "name", "num"]),
-            ("Expr", vec!["(", "name", "num"]),
-            ("Expr'", vec!["+", "-", LAMBDA]),
-            ("Term", vec!["(", "name", "num"]),
-            ("Term'", vec!["x", "%", LAMBDA]),
-            ("Factor", vec!["(", "name", "num"]),
-        ];
+        let cases = vec![("Goal", vec!["(", "name", "num"]),
+                         ("Expr", vec!["(", "name", "num"]),
+                         ("Expr'", vec!["+", "-", LAMBDA]),
+                         ("Term", vec!["(", "name", "num"]),
+                         ("Term'", vec!["x", "%", LAMBDA]),
+                         ("Factor", vec!["(", "name", "num"])];
 
         for &(ref nt, ref first) in &cases {
             assert_eq!(g.first_map.get(&nt.to_string()).unwrap(),
-                       &first.iter().cloned().map(|s| s.to_string()).collect::<HashSet<String>>(),
-                       "Case nt {:?}, first {:?}", nt, first);
+                       &first
+                            .iter()
+                            .cloned()
+                            .map(|s| s.to_string())
+                            .collect::<HashSet<String>>(),
+                       "Case nt {:?}, first {:?}",
+                       nt,
+                       first);
         }
+
+        assert_eq!(g.first_of(&vec!["Expr'".to_string(), "x".to_string()])
+                       .unwrap(),
+                   vec!["+", "-", LAMBDA, "x"]
+                       .iter()
+                       .cloned()
+                       .map(|s| s.to_string())
+                       .collect::<HashSet<String>>())
     }
 }
