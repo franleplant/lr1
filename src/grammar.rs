@@ -180,6 +180,20 @@ impl Grammar {
 
         if first.is_empty() { None } else { Some(first) }
     }
+
+    pub fn with_fake_goal(&self) -> Grammar {
+        let fake_goal = "FAKE_GOAL".to_string();
+        let non_terminals = {
+            let mut non_terminals = self.non_terminals.clone();
+            non_terminals.insert(fake_goal.clone());
+            non_terminals.iter().cloned().collect()
+        };
+
+        let fake_prod = Production::new(fake_goal.clone(), vec![self.goal.clone()]);
+        let prods = [vec![fake_prod], self.productions.clone()].concat();
+
+        Grammar::new(fake_goal, non_terminals, prods)
+    }
 }
 
 #[cfg(test)]
