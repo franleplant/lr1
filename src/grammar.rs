@@ -99,6 +99,7 @@ impl Grammar {
     fn calc_first(&self) -> HashMap<String, HashSet<String>> {
         let mut first_map: HashMap<String, HashSet<String>> = HashMap::new();
 
+        //TODO create a method to get this, since is kind of used through out
         let specials: HashSet<String> = vec![EOF.to_string(), LAMBDA.to_string()]
             .iter()
             .cloned()
