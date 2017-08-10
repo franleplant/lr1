@@ -1,128 +1,33 @@
-//use std::convert::From;
-use std::collections::BTreeSet;
-use std::fmt;
+use std::collections::{HashMap, BTreeSet};
+use super::{Grammar, Production, EOF, Item};
 
-use super::{Production, Grammar, EOF};
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Item {
-    pub from: String,
-    pub to: Vec<String>,
-    pub lookahead: String,
-    pub stacktop: usize,
-}
-
-impl Item {
-    pub fn new_simple<T: Into<String> + Clone>(from: T,
-                                               to: Vec<T>,
-                                               stacktop: usize,
-                                               lookahead: T)
-                                               -> Item {
-        let to = to.iter().cloned().map(|s| s.into()).collect();
-        Item::new(from.into(), to, stacktop, lookahead.into())
-    }
-
-    pub fn new(from: String, to: Vec<String>, stacktop: usize, lookahead: String) -> Item {
-        Item {
-            from: from,
-            to: to,
-            stacktop: stacktop,
-            lookahead: lookahead,
-        }
-    }
-
-    pub fn from_production(prod: &Production, lookahead: String) -> Item {
-        let &Production { ref from, ref to } = prod;
-        Item::new(from.clone(), to.clone(), 0, lookahead)
-    }
-
-    pub fn set_to_string(items: &BTreeSet<Item>) -> String {
-        items
-            .iter()
-            .map(|item| format!("{}", item))
-            .collect::<Vec<String>>()
-            .join(" ")
-    }
-
-    pub fn set_of_sets_to_string(set: &BTreeSet<BTreeSet<Item>>) -> String {
-        set.iter()
-            .map(|cc_i| Item::set_to_string(cc_i))
-            .collect::<Vec<String>>()
-            .join("\n")
-    }
-
-    pub fn is_complete(&self) -> bool {
-        assert!(self.stacktop <= self.to.len(), "Stacktop out of bounds");
-        if self.stacktop == self.to.len() {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn stacktop(&self) -> Option<String> {
-        if self.stacktop == self.to.len() {
-            // Item complete
-            return None;
-        } else if self.stacktop < self.to.len() {
-            return self.to.get(self.stacktop).map(|s| s.clone());
-        } else {
-            panic!("Stacktop out of bounds")
-        }
-    }
-
-    //TODO return a slice
-    pub fn after_stacktop(&self) -> Vec<String> {
-        self.to[self.stacktop + 1..].to_vec()
-    }
-
-    pub fn after_stacktop_and_lookahead(&self) -> Vec<String> {
-        let mut rest = self.after_stacktop();
-        rest.push(self.lookahead.clone());
-        rest
-    }
-
-    pub fn clone_with_next_stacktop(&self) -> Item {
-        let mut item = self.clone();
-        if item.stacktop() == None {
-            panic!("Attempting to push item's stacktop when the item is already complete {:?}",
-                   self);
-        }
-
-        item.stacktop += 1;
-        item
-    }
-}
-
-impl fmt::Display for Item {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let to_str: String = if self.stacktop() == None {
-            format!("{} •", self.to.join(" "))
-        } else {
-            self.to
-                .iter()
-                .enumerate()
-                .map(|(i, s)| if i == self.stacktop {
-                         format!("• {}", s)
-                     } else {
-                         s.clone()
-                     })
-                .collect::<Vec<String>>()
-                .join(" ")
-        };
-
-        write!(f, "[{} -> {}, {}]", self.from, to_str, self.lookahead)
-    }
+enum Action {
+    Accept,
+    Reduce(Production),
+    Shift(BTreeSet<Item>),
 }
 
 
+//TODO make goto use references instead of hard copies
+//Probably better to identify cc's as an index, and then refrence through out like that
+//because is expensive to copy it
 pub struct Parser {
     grammar: Grammar,
+    cc: BTreeSet<BTreeSet<Item>>,
+    goto: HashMap<(BTreeSet<Item>, String), Vec<BTreeSet<Item>>>,
+    action: HashMap<(BTreeSet<Item>, String), Vec<Action>>,
 }
 
 impl Parser {
-    // TODO probably this functions can be standalone
-    // since they only need access to the grammar
+    pub fn new(g: Grammar) -> Parser {
+        Parser {
+            grammar: g,
+            cc: BTreeSet::new(),
+            goto: HashMap::new(),
+            action: HashMap::new(),
+        }
+    }
+
     pub fn closure(&self, items: &BTreeSet<Item>) -> BTreeSet<Item> {
         let mut new_items = items.clone();
         let mut items = BTreeSet::new();
@@ -160,11 +65,11 @@ impl Parser {
         items
     }
 
-    pub fn goto(&self, items: &BTreeSet<Item>, x: String) -> Option<BTreeSet<Item>> {
+    pub fn goto(&self, items: &BTreeSet<Item>, x: &String) -> Option<BTreeSet<Item>> {
         let next: BTreeSet<Item> = items
             .iter()
             .filter(|&item| item.stacktop().is_some())
-            .filter(|&item| item.stacktop().unwrap() == x)
+            .filter(|&item| &item.stacktop().unwrap() == x)
             .map(|item| item.clone_with_next_stacktop())
             .collect();
 
@@ -176,7 +81,7 @@ impl Parser {
         }
     }
 
-    pub fn build_cc(&self) -> BTreeSet<BTreeSet<Item>> {
+    pub fn build_cc(&mut self) {
         let cc0 = {
             let item = Item::from_production(&self.grammar.productions[0], EOF.to_string());
             let mut set = BTreeSet::new();
@@ -199,27 +104,56 @@ impl Parser {
             for cc_i in &cc {
                 for item in cc_i.iter().filter(|&item| item.stacktop().is_some()) {
                     let stacktop = item.stacktop().unwrap();
-                    let next = self.goto(cc_i, stacktop);
+                    let next = self.goto(cc_i, &stacktop);
                     if next == None {
                         println!("NONE NONE NONE");
                         continue;
                     }
                     let next = next.unwrap();
                     if !cc.contains(&next) {
-                        new_cc.insert(next);
+                        new_cc.insert(next.clone());
                     }
+
+                    if self.grammar.is_terminal(&stacktop) {
+                        let entry = self.action.entry((cc_i.clone(), stacktop))
+                            .or_insert(vec![]);
+
+                        entry.push(Action::Shift(next));
+
+                    } else {
+                        let entry = self.goto.entry((cc_i.clone(), stacktop))
+                            .or_insert(vec![]);
+
+                        entry.push(next)
+                    }
+
                 }
             }
         }
 
-        cc
+        self.cc = cc;
+    }
+
+    pub fn build_action(&mut self) {
+        for cc_i in &self.cc {
+            for item in cc_i.iter().filter(|&item| item.is_complete()) {
+                let entry = self.action.entry((cc_i.clone(), item.lookahead.clone()))
+                    .or_insert(vec![]);
+
+                if item.is_terminator() {
+                    entry.push(Action::Accept);
+                } else {
+                    entry.push(Action::Reduce(item.to_prod()));
+                }
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::EOF;
+    use super::super::{FAKE_GOAL, EOF};
 
     fn paretheses_grammar() -> Grammar {
         let non_terminals = vec!["List", "Pair"];
@@ -236,7 +170,7 @@ mod tests {
 
     fn example_parser() -> Parser {
         let g = paretheses_grammar();
-        Parser { grammar: g.with_fake_goal() }
+        Parser::new(g.with_fake_goal())
     }
 
     #[test]
@@ -248,7 +182,7 @@ mod tests {
         let cc0 = parser.closure(&items);
 
         let actual = &cc0;
-        let expected = vec![Item::new_simple("FAKE_GOAL", vec!["List"], 0, EOF),
+        let expected = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 0, EOF),
                             Item::new_simple("List", vec!["List", "Pair"], 0, EOF),
                             Item::new_simple("List", vec!["List", "Pair"], 0, "("),
                             Item::new_simple("List", vec!["Pair"], 0, EOF),
@@ -268,7 +202,7 @@ mod tests {
                    Item::set_to_string(&actual),
                    Item::set_to_string(&expected));
 
-        let actual = parser.goto(&cc0, "(".to_string()).unwrap();
+        let actual = parser.goto(&cc0, &"(".to_string()).unwrap();
         let expected = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, EOF),
                             Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, "("),
 
@@ -290,8 +224,8 @@ mod tests {
 
     #[test]
     fn build_cc_test() {
-        let parser = example_parser();
-        let cc0 = vec![Item::new_simple("FAKE_GOAL", vec!["List"], 0, EOF),
+        let mut parser = example_parser();
+        let cc0 = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 0, EOF),
                        Item::new_simple("List", vec!["List", "Pair"], 0, EOF),
                        Item::new_simple("List", vec!["List", "Pair"], 0, "("),
                        Item::new_simple("List", vec!["Pair"], 0, EOF),
@@ -305,7 +239,7 @@ mod tests {
                 .cloned()
                 .collect();
 
-        let cc1 = vec![Item::new_simple("FAKE_GOAL", vec!["List"], 1, EOF),
+        let cc1 = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 1, EOF),
 
                        Item::new_simple("List", vec!["List", "Pair"], 1, EOF),
                        Item::new_simple("List", vec!["List", "Pair"], 1, "("),
@@ -389,7 +323,8 @@ mod tests {
                 .cloned()
                 .collect();
 
-        let actual_cc = parser.build_cc();
+        parser.build_cc();
+        let actual_cc = parser.cc.clone();
 
         assert_eq!(actual_cc.len(),
                    expected_cc.len(),
