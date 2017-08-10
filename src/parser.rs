@@ -2,8 +2,8 @@ use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
 use super::{Grammar, Production, EOF, Item};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Action {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Action {
     Accept,
     Reduce(Production),
     Shift(Rc<BTreeSet<Item>>),
@@ -210,9 +210,7 @@ impl Parser {
         }
     }
 
-    // TODO what about cc_vec instead of index_to_cc
-    // what about cc_map instead of cc_to_index
-    pub fn print_tables(&self) {
+    pub fn print_cc(&self) {
         println!("CC");
         println!("======");
 
@@ -220,6 +218,43 @@ impl Parser {
             println!("{:<4} {}", i, Item::set_to_string(cc_i));
         }
         println!("\n");
+    }
+
+
+    pub fn print_tables(&self) {
+        println!("ACTION");
+        println!("======");
+
+        for (&(ref cc_i, ref symbol), action) in &self.action {
+            let i = self.cc_to_index.get(cc_i).unwrap();
+            let a = self.set_of_actions_to_string(&action);
+            println!("{:<4} {:<4} -> {}", i, symbol, a);
+        }
+    }
+
+    pub fn action_to_string(&self, action: &Action) -> String {
+        match action {
+            &Action::Accept => "Accept".to_string(),
+            &Action::Reduce(ref prod) => format!("{}", prod),
+            &Action::Shift(ref cc_i) => {
+                format!("Shift({})",
+                        self.cc_to_index
+                            .get(cc_i)
+                            .expect("action_to_string: bad shift"))
+            }
+        }
+    }
+
+    pub fn set_of_actions_to_string(&self, action: &BTreeSet<Action>) -> String {
+        action
+            .iter()
+            .map(|action| self.action_to_string(&action))
+            .collect::<Vec<String>>()
+            .join(", ")
+    }
+
+
+    pub fn pretty_print_tables(&self) {
 
 
         println!("ACTION");
@@ -248,7 +283,9 @@ impl Parser {
                         .map(|a| match a {
                                  &Action::Accept => "Accept".to_string(),
                                  &Action::Reduce(ref prod) => format!("{}", prod),
-                                 &Action::Shift(ref cc_i) => format!("Shift({})", self.cc_to_index.get(cc_i).unwrap()),
+                                 &Action::Shift(ref cc_i) => {
+                                     format!("Shift({})", self.cc_to_index.get(cc_i).unwrap())
+                                 }
                              })
                         .collect::<Vec<String>>()
                         .join(", ");
@@ -390,25 +427,43 @@ mod tests {
 
         let col = vec!["Goal", "List", "Pair", "(", ")", EOF];
 
-        let expected = vec![
-            [None, Some(cc_vec[1].clone()), Some(cc_vec[2].clone()), Some(cc_vec[3].clone()), None, None],
-            [None, None, Some(cc_vec[4].clone()), Some(cc_vec[3].clone()), None, None],
+        let expected = vec![[None,
+                             Some(cc_vec[1].clone()),
+                             Some(cc_vec[2].clone()),
+                             Some(cc_vec[3].clone()),
+                             None,
+                             None],
+                            [None,
+                             None,
+                             Some(cc_vec[4].clone()),
+                             Some(cc_vec[3].clone()),
+                             None,
+                             None],
 
-            [None, None, None, None, None, None],
-            [None, None, Some(cc_vec[5].clone()), Some(cc_vec[6].clone()), Some(cc_vec[7].clone()), None],
+                            [None, None, None, None, None, None],
+                            [None,
+                             None,
+                             Some(cc_vec[5].clone()),
+                             Some(cc_vec[6].clone()),
+                             Some(cc_vec[7].clone()),
+                             None],
 
-            [None, None, None, None, None, None],
-            [None, None, None, None, Some(cc_vec[8].clone()), None],
+                            [None, None, None, None, None, None],
+                            [None, None, None, None, Some(cc_vec[8].clone()), None],
 
-            [None, None, Some(cc_vec[9].clone()), Some(cc_vec[6].clone()), Some(cc_vec[10].clone()), None],
-            [None, None, None, None, None, None],
+                            [None,
+                             None,
+                             Some(cc_vec[9].clone()),
+                             Some(cc_vec[6].clone()),
+                             Some(cc_vec[10].clone()),
+                             None],
+                            [None, None, None, None, None, None],
 
-            [None, None, None, None, None, None],
-            [None, None, None, None, Some(cc_vec[11].clone()), None],
+                            [None, None, None, None, None, None],
+                            [None, None, None, None, Some(cc_vec[11].clone()), None],
 
-            [None, None, None, None, None, None],
-            [None, None, None, None, None, None],
-        ];
+                            [None, None, None, None, None, None],
+                            [None, None, None, None, None, None]];
 
         for (i, row) in expected.iter().enumerate() {
             for (j, e) in row.iter().enumerate() {
@@ -424,13 +479,73 @@ mod tests {
     }
 
     #[test]
+    fn action_test() {
+        use Action::*;
+        let mut parser = example_parser();
+        parser.build_cc();
+        parser.build_action();
+        let cc_vec = paretheses_cc();
+        let prods = parser.grammar.productions.clone();
+
+
+        let col = [EOF, "(", ")"];
+
+        let expected = vec![//0
+                            [None, Some(Shift(cc_vec[3].clone())), None],
+                            [Some(Accept), Some(Shift(cc_vec[3].clone())), None],
+                            //2
+                            [Some(Reduce(prods[2].clone())),
+                             Some(Reduce(prods[2].clone())),
+                             None],
+                            [None,
+                             Some(Shift(cc_vec[6].clone())),
+                             Some(Shift(cc_vec[7].clone()))],
+                            //4
+                            [Some(Reduce(prods[1].clone())),
+                             Some(Reduce(prods[1].clone())),
+                             None],
+                            [None, None, Some(Shift(cc_vec[8].clone()))],
+                            //6
+                            [None,
+                             Some(Shift(cc_vec[6].clone())),
+                             Some(Shift(cc_vec[10].clone()))],
+                            [Some(Reduce(prods[4].clone())),
+                             Some(Reduce(prods[4].clone())),
+                             None],
+                            //8
+                            [Some(Reduce(prods[3].clone())),
+                             Some(Reduce(prods[3].clone())),
+                             None],
+                            [None, None, Some(Shift(cc_vec[11].clone()))],
+                            //10
+                            [None, None, Some(Reduce(prods[4].clone()))],
+                            [None, None, Some(Reduce(prods[3].clone()))]];
+
+        for (i, row) in expected.iter().enumerate() {
+            for (j, e) in row.iter().enumerate() {
+                let a = parser.action.get(&(cc_vec[i].clone(), col[j].to_string()));
+
+                let e = e.clone()
+                    .map(|a| {
+                             let mut set = BTreeSet::new();
+                             set.insert(a.clone());
+                             set
+                         });
+
+                assert_eq!(a.map(|a| a.clone()),
+                           e.clone(),
+                           "\n>>>Actual {:?} \n>>>Expected {:?}",
+                           a.map(|a| parser.set_of_actions_to_string(&a)),
+                           e.map(|a| parser.set_of_actions_to_string(&a)));
+            }
+        }
+    }
+
+    #[test]
     fn build_cc_test() {
         let mut parser = example_parser();
 
-        let expected_cc: BTreeSet<Rc<BTreeSet<Item>>> = paretheses_cc()
-                .iter()
-                .cloned()
-                .collect();
+        let expected_cc: BTreeSet<Rc<BTreeSet<Item>>> = paretheses_cc().iter().cloned().collect();
 
         parser.build_cc();
         let actual_cc = parser.cc.clone();
@@ -456,6 +571,7 @@ mod tests {
         parser.build_cc();
         parser.build_action();
 
+        parser.print_cc();
         parser.print_tables();
         //println!("{:?}", parser.goto);
         //println!("{:?}", parser.action);

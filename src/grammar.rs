@@ -3,6 +3,8 @@ use std::fmt;
 
 //TODO figure out a way of encoding being a terminal or not in the symbol itself
 //perhaps by an enum, and by clasifying that when creating the grammar
+//
+//TODO let the Production be an Rc and let Items have a production, so it's less copying
 use super::{LAMBDA, EOF};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
