@@ -1,6 +1,7 @@
 use std::collections::{HashMap, BTreeSet};
 use super::{Grammar, Production, EOF, Item};
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Action {
     Accept,
     Reduce(Production),
@@ -8,14 +9,49 @@ enum Action {
 }
 
 
-//TODO make goto use references instead of hard copies
+//TODO we need to avoid copying in goto and action and Action so much
 //Probably better to identify cc's as an index, and then refrence through out like that
 //because is expensive to copy it
+//I think that the only way right now is by using indices
+//so
+//action: HashMap<(usize, usize), Vec<Action>>
+//where the first usize is the index corresponding to cc_i
+//and the second is the index corresponding to a symbol in the grammar
+//
+//the same happens to goto
+//
+//so we basically need
+//## Grammar
+//- Symbol <-> number
+//- Production <-> number
+//
+//## Parser
+//- cc_i <-> number
+//
+//We can easily get number -> Any with Array
+//we can easily get Any -> number with a HashMap
+//
+//What about if we combie these two in a single data structure: CanonicalSet?
+//The contract is:
+//- cc.get_cc(i) -> cc_i
+//- cc.get_i(cc_i) -> i
+//- cc.insert(cc)
+//- cc.iter (access to the array)
+//
+//
+//what about using Rc?
+//because the above is very complicated
+//
+//
+//
+//TODO
+//print tables in a human readable way
+#[derive(Debug)]
 pub struct Parser {
     grammar: Grammar,
     cc: BTreeSet<BTreeSet<Item>>,
-    goto: HashMap<(BTreeSet<Item>, String), Vec<BTreeSet<Item>>>,
-    action: HashMap<(BTreeSet<Item>, String), Vec<Action>>,
+    goto: HashMap<(BTreeSet<Item>, String), BTreeSet<BTreeSet<Item>>>,
+    action: HashMap<(BTreeSet<Item>, String), BTreeSet<Action>>,
 }
 
 impl Parser {
@@ -115,16 +151,15 @@ impl Parser {
                     }
 
                     if self.grammar.is_terminal(&stacktop) {
-                        let entry = self.action.entry((cc_i.clone(), stacktop))
-                            .or_insert(vec![]);
+                        let entry = self.action
+                            .entry((cc_i.clone(), stacktop))
+                            .or_insert(BTreeSet::new());
 
-                        entry.push(Action::Shift(next));
+                        entry.insert(Action::Shift(next));
 
                     } else {
-                        let entry = self.goto.entry((cc_i.clone(), stacktop))
-                            .or_insert(vec![]);
-
-                        entry.push(next)
+                        let entry = self.goto.entry((cc_i.clone(), stacktop)).or_insert(BTreeSet::new());
+                        entry.insert(next);
                     }
 
                 }
@@ -134,19 +169,90 @@ impl Parser {
         self.cc = cc;
     }
 
+    //TODO merge this with build_cc
     pub fn build_action(&mut self) {
         for cc_i in &self.cc {
             for item in cc_i.iter().filter(|&item| item.is_complete()) {
-                let entry = self.action.entry((cc_i.clone(), item.lookahead.clone()))
-                    .or_insert(vec![]);
+                let entry = self.action
+                    .entry((cc_i.clone(), item.lookahead.clone()))
+                    .or_insert(BTreeSet::new());
 
                 if item.is_terminator() {
-                    entry.push(Action::Accept);
+                    entry.insert(Action::Accept);
                 } else {
-                    entry.push(Action::Reduce(item.to_prod()));
+                    entry.insert(Action::Reduce(item.to_prod()));
                 }
             }
         }
+    }
+
+    pub fn print_tables(&self) {
+        let mut index_to_cc_i = vec![];
+        let mut cc_i_to_index: HashMap<BTreeSet<Item>, usize> = HashMap::new();
+        for (i, cc_i) in self.cc.iter().enumerate() {
+            index_to_cc_i.push(cc_i.clone());
+            cc_i_to_index.insert(cc_i.clone(), i);
+            println!("{:<4} {}",i, Item::set_to_string(cc_i));
+        }
+        println!("\n");
+
+
+        println!("ACTION");
+        println!("======");
+        let mut rows: Vec<Vec<String>> = vec![];
+
+        let mut terminals = self.grammar.terminals
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut first_row = vec!["".to_string(), EOF.to_string()];
+        first_row.append(&mut terminals);
+
+        rows.push(first_row);
+
+
+        let mut terminals = vec![EOF.to_string()];
+        terminals.append(&mut self.grammar.terminals.iter().cloned().collect());
+
+        for (i, cc_i) in self.cc.iter().enumerate() {
+            let mut row = vec![i.to_string()];
+            for t in &terminals {
+                let action = self.action.get(&(cc_i.clone(), t.clone()));
+                if action == None {
+                    row.push("".to_string());
+                } else {
+                    let s = action.unwrap()
+                        .iter()
+                        .map(|a| {
+                            match a {
+                                &Action::Accept => "Accept".to_string(),
+                                &Action::Reduce(ref prod) => format!("{}", prod),
+                                &Action::Shift(ref cc_i) => format!("Shift({})", cc_i_to_index.get(cc_i).unwrap()),
+                            }
+                        })
+                        .collect::<Vec<String>>()
+                        .join(", ");
+
+                    row.push(s);
+                }
+            }
+
+            rows.push(row);
+        }
+
+
+        for row in rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i == 0 {
+                    print!("{:<4}", cell);
+                } else {
+                    print!("{:<30}", cell);
+                }
+            }
+            println!("");
+        }
+
     }
 }
 
@@ -339,5 +445,17 @@ mod tests {
                        Item::set_to_string(actual_items),
                        Item::set_to_string(expected_items));
         }
+    }
+
+    #[test]
+    fn tables_test() {
+        let mut parser = example_parser();
+        parser.build_cc();
+        parser.build_action();
+
+        parser.print_tables();
+        //println!("{:?}", parser.goto);
+        //println!("{:?}", parser.action);
+
     }
 }

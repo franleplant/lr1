@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, BTreeSet};
+use std::fmt;
 
 use super::{LAMBDA, EOF};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Production {
     pub from: String,
     pub to: Vec<String>,
@@ -14,13 +15,20 @@ impl Production {
     }
 }
 
+impl fmt::Display for Production {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} -> {}", self.from, self.to.iter().map(|s| format!("{:?}", s)).collect::<Vec<String>>().join(" "))
+    }
+}
+
+#[derive(Debug)]
 pub struct Grammar {
     pub goal: String,
     pub productions: Vec<Production>,
-    pub non_terminals: HashSet<String>,
-    pub terminals: HashSet<String>,
+    pub non_terminals: BTreeSet<String>,
+    pub terminals: BTreeSet<String>,
     prod_map: HashMap<String, Vec<usize>>,
-    first_map: HashMap<String, HashSet<String>>,
+    first_map: HashMap<String, BTreeSet<String>>,
 }
 
 impl Grammar {
@@ -47,13 +55,13 @@ impl Grammar {
             prod_map.entry(from.clone()).or_insert(vec![]).push(i);
         }
 
-        let mut non_terminals: HashSet<String> = non_terminals.iter().cloned().collect();
+        let mut non_terminals: BTreeSet<String> = non_terminals.iter().cloned().collect();
         non_terminals.insert(goal.clone());
 
         let mut grammar = Grammar {
             goal: goal,
             non_terminals: non_terminals,
-            terminals: HashSet::new(),
+            terminals: BTreeSet::new(),
             productions: prods,
             prod_map: prod_map,
             first_map: HashMap::new(),
@@ -83,7 +91,7 @@ impl Grammar {
 
     }
 
-    fn calc_terminals(&self) -> HashSet<String> {
+    fn calc_terminals(&self) -> BTreeSet<String> {
         self.productions
             .iter()
             .cloned()
@@ -96,11 +104,11 @@ impl Grammar {
             .collect()
     }
 
-    fn calc_first(&self) -> HashMap<String, HashSet<String>> {
-        let mut first_map: HashMap<String, HashSet<String>> = HashMap::new();
+    fn calc_first(&self) -> HashMap<String, BTreeSet<String>> {
+        let mut first_map: HashMap<String, BTreeSet<String>> = HashMap::new();
 
         //TODO create a method to get this, since is kind of used through out
-        let specials: HashSet<String> = vec![EOF.to_string(), LAMBDA.to_string()]
+        let specials: BTreeSet<String> = vec![EOF.to_string(), LAMBDA.to_string()]
             .iter()
             .cloned()
             .collect();
@@ -113,14 +121,14 @@ impl Grammar {
             first_map.insert(nt.clone(), vec![].iter().cloned().collect());
         }
 
-        let lambda_set: HashSet<String> = vec![LAMBDA.to_string()].iter().cloned().collect();
+        let lambda_set: BTreeSet<String> = vec![LAMBDA.to_string()].iter().cloned().collect();
 
         let mut first_map_snapshot = HashMap::new();
         while first_map != first_map_snapshot {
             first_map_snapshot = first_map.clone();
             for &Production { ref from, ref to } in &self.productions {
                 //TODO try to make it more rusty
-                let mut rhs: HashSet<String> = first_map
+                let mut rhs: BTreeSet<String> = first_map
                     .get(&to[0])
                     .unwrap()
                     .difference(&lambda_set)
@@ -129,7 +137,7 @@ impl Grammar {
 
                 let mut i = 0;
                 while first_map.get(&to[i]).unwrap().contains(LAMBDA) && i < to.len() - 1 {
-                    let next: HashSet<String> = first_map
+                    let next: BTreeSet<String> = first_map
                         .get(&to[i + 1])
                         .unwrap()
                         .difference(&lambda_set)
@@ -160,8 +168,8 @@ impl Grammar {
         self.terminals.contains(symbol)
     }
 
-    pub fn first_of(&self, symbols: &Vec<String>) -> Option<HashSet<String>> {
-        let mut first = HashSet::new();
+    pub fn first_of(&self, symbols: &Vec<String>) -> Option<BTreeSet<String>> {
+        let mut first = BTreeSet::new();
 
         let first_by_symbol = symbols
             .iter()
@@ -238,7 +246,7 @@ mod tests {
 
         for t in &g.terminals {
             assert_eq!(g.first_map.get(t).unwrap(),
-                       &vec![t.clone()].iter().cloned().collect::<HashSet<String>>());
+                       &vec![t.clone()].iter().cloned().collect::<BTreeSet<String>>());
         }
 
 
@@ -255,7 +263,7 @@ mod tests {
                             .iter()
                             .cloned()
                             .map(|s| s.to_string())
-                            .collect::<HashSet<String>>(),
+                            .collect::<BTreeSet<String>>(),
                        "Case nt {:?}, first {:?}",
                        nt,
                        first);
@@ -267,6 +275,6 @@ mod tests {
                        .iter()
                        .cloned()
                        .map(|s| s.to_string())
-                       .collect::<HashSet<String>>())
+                       .collect::<BTreeSet<String>>())
     }
 }
