@@ -388,19 +388,39 @@ mod tests {
         let parser = example_parser();
         let cc_vec = paretheses_cc();
 
-        assert_eq!(parser.goto(&cc_vec[0], &"Goal".to_string()), None);
-        assert_eq!(parser.goto(&cc_vec[0], &"List".to_string()).unwrap(), cc_vec[1]);
-        assert_eq!(parser.goto(&cc_vec[0], &"Pair".to_string()).unwrap(), cc_vec[2]);
-        assert_eq!(parser.goto(&cc_vec[0], &"(".to_string()).unwrap(), cc_vec[3]);
-        assert_eq!(parser.goto(&cc_vec[0], &")".to_string()), None);
-        assert_eq!(parser.goto(&cc_vec[0], &EOF.to_string()), None);
+        let col = vec!["Goal", "List", "Pair", "(", ")", EOF];
 
-        assert_eq!(parser.goto(&cc_vec[1], &"Goal".to_string()), None);
-        assert_eq!(parser.goto(&cc_vec[1], &"List".to_string()), None);
-        assert_eq!(parser.goto(&cc_vec[1], &"Pair".to_string()).unwrap(), cc_vec[4]);
-        assert_eq!(parser.goto(&cc_vec[1], &"(".to_string()).unwrap(), cc_vec[3]);
-        assert_eq!(parser.goto(&cc_vec[1], &")".to_string()), None);
-        assert_eq!(parser.goto(&cc_vec[1], &EOF.to_string()), None);
+        let expected = vec![
+            [None, Some(cc_vec[1].clone()), Some(cc_vec[2].clone()), Some(cc_vec[3].clone()), None, None],
+            [None, None, Some(cc_vec[4].clone()), Some(cc_vec[3].clone()), None, None],
+
+            [None, None, None, None, None, None],
+            [None, None, Some(cc_vec[5].clone()), Some(cc_vec[6].clone()), Some(cc_vec[7].clone()), None],
+
+            [None, None, None, None, None, None],
+            [None, None, None, None, Some(cc_vec[8].clone()), None],
+
+            [None, None, Some(cc_vec[9].clone()), Some(cc_vec[6].clone()), Some(cc_vec[10].clone()), None],
+            [None, None, None, None, None, None],
+
+            [None, None, None, None, None, None],
+            [None, None, None, None, Some(cc_vec[11].clone()), None],
+
+            [None, None, None, None, None, None],
+            [None, None, None, None, None, None],
+        ];
+
+        for (i, row) in expected.iter().enumerate() {
+            for (j, e) in row.iter().enumerate() {
+                let a = parser.goto(&cc_vec[i], &col[j].to_string());
+
+                assert_eq!(a.clone(), e.clone(), "\nFrom {:?}\nActual {:?}\nExpected {:?}",
+                           Item::set_to_string(&cc_vec[i]),
+                           a.clone().map(|a| Item::set_to_string(&a)),
+                           e.clone().map(|e| Item::set_to_string(&e)),
+                        );
+            }
+        }
     }
 
     #[test]
