@@ -1,11 +1,12 @@
 use std::collections::{HashMap, BTreeSet};
+use std::rc::Rc;
 use super::{Grammar, Production, EOF, Item};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Action {
     Accept,
     Reduce(Production),
-    Shift(BTreeSet<Item>),
+    Shift(Rc<BTreeSet<Item>>),
 }
 
 
@@ -49,9 +50,12 @@ enum Action {
 #[derive(Debug)]
 pub struct Parser {
     grammar: Grammar,
-    cc: BTreeSet<BTreeSet<Item>>,
-    goto: HashMap<(BTreeSet<Item>, String), BTreeSet<BTreeSet<Item>>>,
-    action: HashMap<(BTreeSet<Item>, String), BTreeSet<Action>>,
+    cc: BTreeSet<Rc<BTreeSet<Item>>>,
+    goto_map: HashMap<(Rc<BTreeSet<Item>>, String), BTreeSet<Rc<BTreeSet<Item>>>>,
+    action: HashMap<(Rc<BTreeSet<Item>>, String), BTreeSet<Action>>,
+
+    index_to_cc: Vec<Rc<BTreeSet<Item>>>,
+    cc_to_index: HashMap<Rc<BTreeSet<Item>>, usize>,
 }
 
 impl Parser {
@@ -59,12 +63,23 @@ impl Parser {
         Parser {
             grammar: g,
             cc: BTreeSet::new(),
-            goto: HashMap::new(),
+            goto_map: HashMap::new(),
             action: HashMap::new(),
+
+            index_to_cc: Vec::new(),
+            cc_to_index: HashMap::new(),
         }
     }
 
-    pub fn closure(&self, items: &BTreeSet<Item>) -> BTreeSet<Item> {
+    pub fn insert_cc(&mut self, cc_i: Rc<BTreeSet<Item>>) {
+        assert!(!self.cc_to_index.contains_key(&cc_i));
+        let index = self.index_to_cc.len();
+
+        self.index_to_cc.push(cc_i.clone());
+        self.cc_to_index.insert(cc_i.clone(), index);
+    }
+
+    pub fn closure(&self, items: &BTreeSet<Item>) -> Rc<BTreeSet<Item>> {
         let mut new_items = items.clone();
         let mut items = BTreeSet::new();
 
@@ -98,10 +113,11 @@ impl Parser {
             //println!("CLOSURE>>>new items {:?}\n",
             //Item::set_to_string(&new_items));
         }
-        items
+
+        Rc::new(items)
     }
 
-    pub fn goto(&self, items: &BTreeSet<Item>, x: &String) -> Option<BTreeSet<Item>> {
+    pub fn goto(&self, items: &BTreeSet<Item>, x: &String) -> Option<Rc<BTreeSet<Item>>> {
         let next: BTreeSet<Item> = items
             .iter()
             .filter(|&item| item.stacktop().is_some())
@@ -128,14 +144,17 @@ impl Parser {
         let mut cc = BTreeSet::new();
         let mut new_cc = {
             let mut set = BTreeSet::new();
-            set.insert(cc0);
+            set.insert(cc0.clone());
             set
         };
+
+        self.insert_cc(cc0);
 
         while !new_cc.is_empty() {
             cc = cc.union(&new_cc).cloned().collect();
             new_cc.clear();
 
+            // TODO we have a method and a attribute goto, disambiugate this
             //println!("\nBUILD_CC>>>CC \n{}", Item::set_of_sets_to_string(&cc));
             for cc_i in &cc {
                 for item in cc_i.iter().filter(|&item| item.stacktop().is_some()) {
@@ -147,7 +166,10 @@ impl Parser {
                     }
                     let next = next.unwrap();
                     if !cc.contains(&next) {
-                        new_cc.insert(next.clone());
+                        let is_new = new_cc.insert(next.clone());
+                        if is_new {
+                            self.insert_cc(next.clone());
+                        }
                     }
 
                     if self.grammar.is_terminal(&stacktop) {
@@ -155,11 +177,13 @@ impl Parser {
                             .entry((cc_i.clone(), stacktop))
                             .or_insert(BTreeSet::new());
 
-                        entry.insert(Action::Shift(next));
+                        entry.insert(Action::Shift(next.clone()));
 
                     } else {
-                        let entry = self.goto.entry((cc_i.clone(), stacktop)).or_insert(BTreeSet::new());
-                        entry.insert(next);
+                        let entry = self.goto_map
+                            .entry((cc_i.clone(), stacktop))
+                            .or_insert(BTreeSet::new());
+                        entry.insert(next.clone());
                     }
 
                 }
@@ -186,13 +210,14 @@ impl Parser {
         }
     }
 
+    // TODO what about cc_vec instead of index_to_cc
+    // what about cc_map instead of cc_to_index
     pub fn print_tables(&self) {
-        let mut index_to_cc_i = vec![];
-        let mut cc_i_to_index: HashMap<BTreeSet<Item>, usize> = HashMap::new();
-        for (i, cc_i) in self.cc.iter().enumerate() {
-            index_to_cc_i.push(cc_i.clone());
-            cc_i_to_index.insert(cc_i.clone(), i);
-            println!("{:<4} {}",i, Item::set_to_string(cc_i));
+        println!("CC");
+        println!("======");
+
+        for (i, cc_i) in self.index_to_cc.iter().enumerate() {
+            println!("{:<4} {}", i, Item::set_to_string(cc_i));
         }
         println!("\n");
 
@@ -210,22 +235,21 @@ impl Parser {
         let mut terminals = vec![EOF.to_string()];
         terminals.append(&mut self.grammar.terminals.iter().cloned().collect());
 
-        for (i, cc_i) in self.cc.iter().enumerate() {
+        for (i, cc_i) in self.index_to_cc.iter().enumerate() {
             let mut row = vec![i.to_string()];
             for t in &terminals {
                 let action = self.action.get(&(cc_i.clone(), t.clone()));
                 if action == None {
                     row.push("".to_string());
                 } else {
-                    let s = action.unwrap()
+                    let s = action
+                        .unwrap()
                         .iter()
-                        .map(|a| {
-                            match a {
-                                &Action::Accept => "Accept".to_string(),
-                                &Action::Reduce(ref prod) => format!("{}", prod),
-                                &Action::Shift(ref cc_i) => format!("Shift({})", cc_i_to_index.get(cc_i).unwrap()),
-                            }
-                        })
+                        .map(|a| match a {
+                                 &Action::Accept => "Accept".to_string(),
+                                 &Action::Reduce(ref prod) => format!("{}", prod),
+                                 &Action::Shift(ref cc_i) => format!("Shift({})", self.cc_to_index.get(cc_i).unwrap()),
+                             })
                         .collect::<Vec<String>>()
                         .join(", ");
 
@@ -261,11 +285,11 @@ impl Parser {
         for (i, cc_i) in self.cc.iter().enumerate() {
             let mut row = vec![i.to_string()];
             for nt in &self.grammar.non_terminals {
-                let next = self.goto.get(&(cc_i.clone(), nt.clone()));
+                let next = self.goto_map.get(&(cc_i.clone(), nt.clone()));
                 if next == None {
                     row.push("".to_string());
                 } else {
-                    row.push(cc_i_to_index.get(cc_i).unwrap().to_string());
+                    row.push(self.cc_to_index.get(cc_i).unwrap().to_string());
                 }
             }
             rows.push(row);
@@ -330,6 +354,8 @@ mod tests {
                 .cloned()
                 .collect();
 
+        let expected = Rc::new(expected);
+
         assert_eq!(actual,
                    &expected,
                    "\n\n>>>actual {}\n>>>expected {}",
@@ -348,6 +374,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .collect();
+        let expected = Rc::new(expected);
 
         assert_eq!(actual,
                    expected,
@@ -357,8 +384,65 @@ mod tests {
     }
 
     #[test]
+    fn goto_test2() {
+        let parser = example_parser();
+        let cc_vec = paretheses_cc();
+
+        assert_eq!(parser.goto(&cc_vec[0], &"Goal".to_string()), None);
+        assert_eq!(parser.goto(&cc_vec[0], &"List".to_string()).unwrap(), cc_vec[1]);
+        assert_eq!(parser.goto(&cc_vec[0], &"Pair".to_string()).unwrap(), cc_vec[2]);
+        assert_eq!(parser.goto(&cc_vec[0], &"(".to_string()).unwrap(), cc_vec[3]);
+        assert_eq!(parser.goto(&cc_vec[0], &")".to_string()), None);
+        assert_eq!(parser.goto(&cc_vec[0], &EOF.to_string()), None);
+
+        assert_eq!(parser.goto(&cc_vec[1], &"Goal".to_string()), None);
+        assert_eq!(parser.goto(&cc_vec[1], &"List".to_string()), None);
+        assert_eq!(parser.goto(&cc_vec[1], &"Pair".to_string()).unwrap(), cc_vec[4]);
+        assert_eq!(parser.goto(&cc_vec[1], &"(".to_string()).unwrap(), cc_vec[3]);
+        assert_eq!(parser.goto(&cc_vec[1], &")".to_string()), None);
+        assert_eq!(parser.goto(&cc_vec[1], &EOF.to_string()), None);
+    }
+
+    #[test]
     fn build_cc_test() {
         let mut parser = example_parser();
+
+        let expected_cc: BTreeSet<Rc<BTreeSet<Item>>> = paretheses_cc()
+                .iter()
+                .cloned()
+                .collect();
+
+        parser.build_cc();
+        let actual_cc = parser.cc.clone();
+
+        assert_eq!(actual_cc.len(),
+                   expected_cc.len(),
+                   "Should have the same length \nACTUAL   {}\nEXPECTED {}",
+                   Item::set_of_sets_to_string(&actual_cc),
+                   Item::set_of_sets_to_string(&expected_cc));
+
+        for (actual_items, expected_items) in actual_cc.iter().zip(&expected_cc) {
+            assert_eq!(actual_items,
+                       expected_items,
+                       "\n>>>Actual {}\n>>>Expected {}",
+                       Item::set_to_string(actual_items),
+                       Item::set_to_string(expected_items));
+        }
+    }
+
+    #[test]
+    fn tables_test() {
+        let mut parser = example_parser();
+        parser.build_cc();
+        parser.build_action();
+
+        parser.print_tables();
+        //println!("{:?}", parser.goto);
+        //println!("{:?}", parser.action);
+
+    }
+
+    fn paretheses_cc() -> Vec<Rc<BTreeSet<Item>>> {
         let cc0 = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 0, EOF),
                        Item::new_simple("List", vec!["List", "Pair"], 0, EOF),
                        Item::new_simple("List", vec!["List", "Pair"], 0, "("),
@@ -451,39 +535,10 @@ mod tests {
             .cloned()
             .collect();
 
-        let expected_cc: BTreeSet<BTreeSet<Item>> = vec![cc0, cc1, cc2, cc3, cc4, cc5, cc6, cc7,
-                                                         cc8, cc9, cc10, cc11]
-                .iter()
-                .cloned()
-                .collect();
-
-        parser.build_cc();
-        let actual_cc = parser.cc.clone();
-
-        assert_eq!(actual_cc.len(),
-                   expected_cc.len(),
-                   "Should have the same length \nACTUAL   {}\nEXPECTED {}",
-                   Item::set_of_sets_to_string(&actual_cc),
-                   Item::set_of_sets_to_string(&expected_cc));
-
-        for (actual_items, expected_items) in actual_cc.iter().zip(&expected_cc) {
-            assert_eq!(actual_items,
-                       expected_items,
-                       "\n>>>Actual {}\n>>>Expected {}",
-                       Item::set_to_string(actual_items),
-                       Item::set_to_string(expected_items));
-        }
-    }
-
-    #[test]
-    fn tables_test() {
-        let mut parser = example_parser();
-        parser.build_cc();
-        parser.build_action();
-
-        parser.print_tables();
-        //println!("{:?}", parser.goto);
-        //println!("{:?}", parser.action);
-
+        vec![cc0, cc1, cc2, cc3, cc4, cc5, cc6, cc7, cc8, cc9, cc10, cc11]
+            .iter()
+            .cloned()
+            .map(|s| Rc::new(s))
+            .collect()
     }
 }

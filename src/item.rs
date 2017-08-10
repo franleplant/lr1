@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::rc::Rc;
 use std::fmt;
 
 use super::{FAKE_GOAL, Production};
@@ -50,7 +51,7 @@ impl Item {
             .join(" ")
     }
 
-    pub fn set_of_sets_to_string(set: &BTreeSet<BTreeSet<Item>>) -> String {
+    pub fn set_of_sets_to_string(set: &BTreeSet<Rc<BTreeSet<Item>>>) -> String {
         set.iter()
             .map(|cc_i| Item::set_to_string(cc_i))
             .collect::<Vec<String>>()

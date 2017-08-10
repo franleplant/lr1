@@ -1,6 +1,8 @@
 use std::collections::{HashMap, BTreeSet};
 use std::fmt;
 
+//TODO figure out a way of encoding being a terminal or not in the symbol itself
+//perhaps by an enum, and by clasifying that when creating the grammar
 use super::{LAMBDA, EOF};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -17,7 +19,14 @@ impl Production {
 
 impl fmt::Display for Production {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} -> {}", self.from, self.to.iter().map(|s| format!("{:?}", s)).collect::<Vec<String>>().join(" "))
+        write!(f,
+               "{} -> {}",
+               self.from,
+               self.to
+                   .iter()
+                   .map(|s| format!("{:?}", s))
+                   .collect::<Vec<String>>()
+                   .join(" "))
     }
 }
 
@@ -246,7 +255,10 @@ mod tests {
 
         for t in &g.terminals {
             assert_eq!(g.first_map.get(t).unwrap(),
-                       &vec![t.clone()].iter().cloned().collect::<BTreeSet<String>>());
+                       &vec![t.clone()]
+                            .iter()
+                            .cloned()
+                            .collect::<BTreeSet<String>>());
         }
 
 
