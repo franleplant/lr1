@@ -201,13 +201,8 @@ impl Parser {
         println!("======");
         let mut rows: Vec<Vec<String>> = vec![];
 
-        let mut terminals = self.grammar.terminals
-            .iter()
-            .cloned()
-            .collect();
-
         let mut first_row = vec!["".to_string(), EOF.to_string()];
-        first_row.append(&mut terminals);
+        first_row.append(&mut self.grammar.terminals.iter().cloned().collect());
 
         rows.push(first_row);
 
@@ -253,6 +248,39 @@ impl Parser {
             println!("");
         }
 
+        println!("\n");
+        println!("GOTO");
+        println!("====");
+        let mut rows: Vec<Vec<String>> = vec![];
+
+        let mut first_row = vec!["".to_string()];
+        first_row.append(&mut self.grammar.non_terminals.iter().cloned().collect());
+
+        rows.push(first_row);
+
+        for (i, cc_i) in self.cc.iter().enumerate() {
+            let mut row = vec![i.to_string()];
+            for nt in &self.grammar.non_terminals {
+                let next = self.goto.get(&(cc_i.clone(), nt.clone()));
+                if next == None {
+                    row.push("".to_string());
+                } else {
+                    row.push(cc_i_to_index.get(cc_i).unwrap().to_string());
+                }
+            }
+            rows.push(row);
+        }
+
+        for row in rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i == 0 {
+                    print!("{:<4}", cell);
+                } else {
+                    print!("{:<10}", cell);
+                }
+            }
+            println!("");
+        }
     }
 }
 
