@@ -1,5 +1,6 @@
 use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
+use std::cell::RefCell;
 use super::{Grammar, Production, EOF, Item};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -24,6 +25,8 @@ pub struct Parser {
 
     index_to_cc: Vec<Rc<BTreeSet<Item>>>,
     cc_to_index: HashMap<Rc<BTreeSet<Item>>, usize>,
+
+    stack: RefCell<Vec<StackEl>>,
 }
 
 impl Parser {
@@ -36,6 +39,8 @@ impl Parser {
 
             index_to_cc: Vec::new(),
             cc_to_index: HashMap::new(),
+
+            stack: RefCell::new(Vec::new()),
         }
     }
 
@@ -173,11 +178,57 @@ impl Parser {
         self.cc = cc;
     }
 
-    pub fn parse(&self, tokens: Vec<(String, String)>) -> Result<(), String>{
+    fn get_single_action<'a, 'b>(&'a self, key: &'b (Rc<BTreeSet<Item>>, String)) -> Result<&'a Action, String> {
+        self.action.get(key)
+            .ok_or(format!("Next action is empty"))
+            .and_then(|actions| {
+                if actions.len() != 1 {
+                    Err(format!("Found conflicts in the Action table"))
+                } else {
+                    Ok(actions)
+                }
+            })
+            .map(|actions| {
+                actions.iter().take(1).collect::<Vec<&Action>>()[0]
+            })
+    }
+
+    fn get_single_goto<'a, 'b>(&'a self, key: &'b (Rc<BTreeSet<Item>>, String)) -> Result<&'a Rc<BTreeSet<Item>>, String> {
+        self.goto_map.get(key)
+            .ok_or(format!("Next state is empty"))
+            .and_then(|states| {
+                if states.len() != 1 {
+                    Err(format!("Found conflicts in the Goto table"))
+                } else {
+                    Ok(states)
+                }
+            })
+            .map(|states| {
+                states.iter().take(1).collect::<Vec<&Rc<BTreeSet<Item>>>>()[0]
+            })
+    }
+
+    fn get_stacktop_state(&self) -> Result<Rc<BTreeSet<Item>>, String> {
+        self.stack.borrow().last()
+            .ok_or(format!("Empty stack"))
+            .and_then(|el| {
+                match el {
+                    &StackEl::State(ref s) => Ok(s.clone()),
+                    _ => Err(format!("Attempting to read an invalid state from stack")),
+                }
+            })
+    }
+
+    pub fn parse(&self, tokens: Vec<(String, String)>) -> Result<(), String> {
         use StackEl::*;
         use Action::*;
 
-        let mut stack = vec![Symbol(EOF.to_string()), State(self.index_to_cc.get(0).unwrap().clone())];
+        {
+            let mut stack = self.stack.borrow_mut();
+            *stack = vec![Symbol(EOF.to_string()),
+                             State(self.index_to_cc.get(0).unwrap().clone())];
+        }
+
         let mut index = 0;
 
         //TODO abstract
@@ -196,62 +247,27 @@ impl Parser {
         }
 
         loop {
-            // TODO abstract
-            let state = {
-                let state = stack.last();
-                if state == None {
-                    return Err("Empty stack".to_string());
-                }
 
-                if let &State(ref s) = state.unwrap() {
-                    s.clone()
-                } else {
-                    return Err("Attempting to read an invalid state from stack".to_string());
-                }
-            };
+            let state = self.get_stacktop_state()?;
+            let action = self.get_single_action(&(state.clone(), word.0.clone()))?;
 
-            //TODO abstract
-            //TODO Try? or something similar
-            let actions = self.action.get(&(state.clone(), word.0.clone()));
-            if actions == None {
-                return Err(format!("Next action is empty"))
-            }
-            let actions = actions.unwrap();
-            assert_eq!(actions.len(), 1, "Found conflicts in the Action table");
-            match actions.iter().take(1).collect::<Vec<&Action>>()[0] {
+            match action {
                 &Reduce(ref prod) => {
+                    let mut stack = self.stack.borrow_mut();
                     for _ in 0..prod.to.len() * 2 {
                         if stack.pop() == None {
                             return Err(format!("Empty stack"));
                         }
                     }
 
-                    // TODO abstract
-                    let state = {
-                        let state = stack.last();
-                        if state == None {
-                            return Err("Empty stack".to_string());
-                        }
-
-                        if let &State(ref s) = state.unwrap() {
-                            s.clone()
-                        } else {
-                            return Err("Attempting to read an invalid state from stack".to_string());
-                        }
-                    };
-
+                    let state = self.get_stacktop_state()?;
+                    let next = self.get_single_goto(&(state, prod.from.clone()))?;
                     stack.push(Symbol(prod.from.clone()));
-                    let next = self.goto_map.get(&(state, prod.from.clone()));
-                    //TODO Try?
-                    if next == None {
-                        return Err(format!("Next state is empty"));
-                    }
-                    let next = next.unwrap();
-                    assert_eq!(next.len(), 1, "Found conflicts in the Goto table");
-                    stack.push(State(next.iter().take(1).collect::<Vec<&Rc<BTreeSet<Item>>>>()[0].clone()));
-                },
+                    stack.push(State(next.clone()));
+                }
 
                 &Shift(ref next_state) => {
+                    let mut stack = self.stack.borrow_mut();
                     stack.push(Symbol(word.0.clone()));
                     stack.push(State(next_state.clone()));
                     //TODO abstract
@@ -264,11 +280,11 @@ impl Parser {
                         index += 1;
                         word.unwrap()
                     };
-                },
+                }
 
                 &Accept => {
                     return Ok(());
-                },
+                }
             }
         }
     }
