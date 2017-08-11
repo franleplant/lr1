@@ -219,7 +219,9 @@ impl Parser {
             })
     }
 
-    pub fn parse(&self, tokens: Vec<(String, String)>) -> Result<(), String> {
+    pub fn parse<I>(&self, mut tokens: I) -> Result<(), String>
+        where I: Iterator<Item=(String, String)>
+    {
         use StackEl::*;
         use Action::*;
 
@@ -229,16 +231,13 @@ impl Parser {
                              State(self.index_to_cc.get(0).unwrap().clone())];
         }
 
-        let mut index = 0;
 
-        //TODO abstract
         let mut word = {
-            let word = tokens.get(index);
+            let word = tokens.next();
             if word == None {
                 return Ok(());
             }
 
-            index += 1;
             word.unwrap()
         };
 
@@ -247,7 +246,6 @@ impl Parser {
         }
 
         loop {
-
             let state = self.get_stacktop_state()?;
             let action = self.get_single_action(&(state.clone(), word.0.clone()))?;
 
@@ -255,9 +253,7 @@ impl Parser {
                 &Reduce(ref prod) => {
                     let mut stack = self.stack.borrow_mut();
                     for _ in 0..prod.to.len() * 2 {
-                        if stack.pop() == None {
-                            return Err(format!("Empty stack"));
-                        }
+                        stack.pop().ok_or(format!("Empty stack"))?;
                     }
 
                     let state = self.get_stacktop_state()?;
@@ -270,16 +266,9 @@ impl Parser {
                     let mut stack = self.stack.borrow_mut();
                     stack.push(Symbol(word.0.clone()));
                     stack.push(State(next_state.clone()));
-                    //TODO abstract
-                    word = {
-                        let word = tokens.get(index);
-                        if word == None {
-                            return Err(format!("Bad token list termination"));
-                        }
 
-                        index += 1;
-                        word.unwrap()
-                    };
+                    word = tokens.next()
+                        .ok_or(format!("Unexpected end of token stream"))?;
                 }
 
                 &Accept => {
