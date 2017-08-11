@@ -178,49 +178,47 @@ impl Parser {
         self.cc = cc;
     }
 
-    fn get_single_action<'a, 'b>(&'a self, key: &'b (Rc<BTreeSet<Item>>, String)) -> Result<&'a Action, String> {
-        self.action.get(key)
+    fn get_single_action<'a, 'b>(&'a self,
+                                 key: &'b (Rc<BTreeSet<Item>>, String))
+                                 -> Result<&'a Action, String> {
+        self.action
+            .get(key)
             .ok_or(format!("Next action is empty"))
-            .and_then(|actions| {
-                if actions.len() != 1 {
-                    Err(format!("Found conflicts in the Action table"))
-                } else {
-                    Ok(actions)
-                }
-            })
-            .map(|actions| {
-                actions.iter().take(1).collect::<Vec<&Action>>()[0]
-            })
+            .and_then(|actions| if actions.len() != 1 {
+                          Err(format!("Found conflicts in the Action table"))
+                      } else {
+                          Ok(actions)
+                      })
+            .map(|actions| actions.iter().take(1).collect::<Vec<&Action>>()[0])
     }
 
-    fn get_single_goto<'a, 'b>(&'a self, key: &'b (Rc<BTreeSet<Item>>, String)) -> Result<&'a Rc<BTreeSet<Item>>, String> {
-        self.goto_map.get(key)
+    fn get_single_goto<'a, 'b>(&'a self,
+                               key: &'b (Rc<BTreeSet<Item>>, String))
+                               -> Result<&'a Rc<BTreeSet<Item>>, String> {
+        self.goto_map
+            .get(key)
             .ok_or(format!("Next state is empty"))
-            .and_then(|states| {
-                if states.len() != 1 {
-                    Err(format!("Found conflicts in the Goto table"))
-                } else {
-                    Ok(states)
-                }
-            })
-            .map(|states| {
-                states.iter().take(1).collect::<Vec<&Rc<BTreeSet<Item>>>>()[0]
-            })
+            .and_then(|states| if states.len() != 1 {
+                          Err(format!("Found conflicts in the Goto table"))
+                      } else {
+                          Ok(states)
+                      })
+            .map(|states| states.iter().take(1).collect::<Vec<&Rc<BTreeSet<Item>>>>()[0])
     }
 
     fn get_stacktop_state(&self) -> Result<Rc<BTreeSet<Item>>, String> {
-        self.stack.borrow().last()
+        self.stack
+            .borrow()
+            .last()
             .ok_or(format!("Empty stack"))
-            .and_then(|el| {
-                match el {
-                    &StackEl::State(ref s) => Ok(s.clone()),
-                    _ => Err(format!("Attempting to read an invalid state from stack")),
-                }
-            })
+            .and_then(|el| match el {
+                          &StackEl::State(ref s) => Ok(s.clone()),
+                          _ => Err(format!("Attempting to read an invalid state from stack")),
+                      })
     }
 
     pub fn parse<I>(&self, mut tokens: I) -> Result<(), String>
-        where I: Iterator<Item=(String, String)>
+        where I: Iterator<Item = (String, String)>
     {
         use StackEl::*;
         use Action::*;
@@ -228,7 +226,7 @@ impl Parser {
         {
             let mut stack = self.stack.borrow_mut();
             *stack = vec![Symbol(EOF.to_string()),
-                             State(self.index_to_cc.get(0).unwrap().clone())];
+                          State(self.index_to_cc.get(0).unwrap().clone())];
         }
 
 
@@ -267,7 +265,8 @@ impl Parser {
                     stack.push(Symbol(word.0.clone()));
                     stack.push(State(next_state.clone()));
 
-                    word = tokens.next()
+                    word = tokens
+                        .next()
                         .ok_or(format!("Unexpected end of token stream"))?;
                 }
 
