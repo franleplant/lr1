@@ -3,6 +3,11 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use super::{Grammar, Production, EOF, Item};
 
+//TODO
+//it'd be nice to have all the printing functions someother place,
+//since they are like 150 lines of code
+//
+//
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
     Accept,
@@ -31,7 +36,7 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(g: Grammar) -> Parser {
-        Parser {
+        let mut p = Parser {
             grammar: g,
             cc: BTreeSet::new(),
             goto_map: HashMap::new(),
@@ -41,7 +46,11 @@ impl Parser {
             cc_to_index: HashMap::new(),
 
             stack: RefCell::new(Vec::new()),
-        }
+        };
+
+        p.build_cc();
+
+        p
     }
 
     pub fn insert_cc(&mut self, cc_i: Rc<BTreeSet<Item>>) {
@@ -181,9 +190,15 @@ impl Parser {
     fn get_single_action<'a, 'b>(&'a self,
                                  key: &'b (Rc<BTreeSet<Item>>, String))
                                  -> Result<&'a Action, String> {
-        self.action
-            .get(key)
-            .ok_or(format!("Next action is empty"))
+        let &(ref s, ref x) = key;
+        let action = self.action.get(key);
+        action
+            .ok_or(format!("Next action is empty.\nAction {}, {}, {} -> {:?}\nStack {}",
+                           self.cc_to_index.get(s).unwrap(),
+                           Item::set_to_string(s),
+                           x,
+                           action,
+                           self.stack_to_string()))
             .and_then(|actions| if actions.len() != 1 {
                           Err(format!("Found conflicts in the Action table"))
                       } else {
@@ -249,15 +264,14 @@ impl Parser {
 
             match action {
                 &Reduce(ref prod) => {
-                    let mut stack = self.stack.borrow_mut();
                     for _ in 0..prod.to.len() * 2 {
-                        stack.pop().ok_or(format!("Empty stack"))?;
+                        self.stack.borrow_mut().pop().ok_or(format!("Empty stack"))?;
                     }
 
                     let state = self.get_stacktop_state()?;
                     let next = self.get_single_goto(&(state, prod.from.clone()))?;
-                    stack.push(Symbol(prod.from.clone()));
-                    stack.push(State(next.clone()));
+                    self.stack.borrow_mut().push(Symbol(prod.from.clone()));
+                    self.stack.borrow_mut().push(State(next.clone()));
                 }
 
                 &Shift(ref next_state) => {
@@ -275,6 +289,19 @@ impl Parser {
                 }
             }
         }
+    }
+
+
+    pub fn stack_to_string(&self) -> String {
+        self.stack.borrow().iter()
+            .map(|el| {
+                match el {
+                    &StackEl::Symbol(ref s) => s.clone(),
+                    &StackEl::State(ref s) => self.cc_to_index.get(s).unwrap().to_string(),
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(", ")
     }
 
     pub fn print_cc(&self) {
@@ -549,8 +576,7 @@ mod tests {
     #[test]
     fn action_test() {
         use Action::*;
-        let mut parser = example_parser();
-        parser.build_cc();
+        let parser = example_parser();
         let cc_vec = paretheses_cc();
         let prods = parser.grammar.productions.clone();
 
@@ -610,11 +636,10 @@ mod tests {
 
     #[test]
     fn build_cc_test() {
-        let mut parser = example_parser();
+        let parser = example_parser();
 
         let expected_cc: BTreeSet<Rc<BTreeSet<Item>>> = paretheses_cc().iter().cloned().collect();
 
-        parser.build_cc();
         let actual_cc = parser.cc.clone();
 
         assert_eq!(actual_cc.len(),
@@ -634,12 +659,46 @@ mod tests {
 
     #[test]
     fn tables_test() {
-        let mut parser = example_parser();
-        parser.build_cc();
+        let parser = example_parser();
 
         parser.print_cc();
         parser.print_tables();
         parser.pretty_print_tables();
+    }
+
+    #[test]
+    fn parse_test() {
+        fn lex(tokens: &str) -> Vec<(String, String)> {
+            if tokens.len() == 0 {
+                return vec![];
+            }
+            tokens.split(" ").into_iter().map(|s| (s.to_string(), "".to_string())).collect()
+        }
+
+        let parser = example_parser();
+
+        let cases = vec![
+            "",
+            "EOF",
+
+            "( ) EOF",
+            "( ( ) ) EOF",
+
+            "( ) ( ) EOF",
+            "( ) ( ) ( ) EOF",
+
+            "( ( ) ) ( ) EOF",
+            "( ( ) ) ( ) ( ) EOF",
+
+            "( ( ( ) ) ) ( ) EOF",
+            "( ( ( ) ) ) ( ( ) ) EOF",
+        ];
+
+        for case in cases {
+            let tokens = lex(case);
+            let res = parser.parse(tokens.into_iter());
+            assert!(res.is_ok(), "case {:?}, res {}", case, res.err().unwrap());
+        }
     }
 
     fn paretheses_cc() -> Vec<Rc<BTreeSet<Item>>> {
