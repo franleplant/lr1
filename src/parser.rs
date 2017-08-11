@@ -293,13 +293,13 @@ impl Parser {
 
 
     pub fn stack_to_string(&self) -> String {
-        self.stack.borrow().iter()
-            .map(|el| {
-                match el {
-                    &StackEl::Symbol(ref s) => s.clone(),
-                    &StackEl::State(ref s) => self.cc_to_index.get(s).unwrap().to_string(),
-                }
-            })
+        self.stack
+            .borrow()
+            .iter()
+            .map(|el| match el {
+                     &StackEl::Symbol(ref s) => s.clone(),
+                     &StackEl::State(ref s) => self.cc_to_index.get(s).unwrap().to_string(),
+                 })
             .collect::<Vec<String>>()
             .join(", ")
     }
@@ -672,27 +672,29 @@ mod tests {
             if tokens.len() == 0 {
                 return vec![];
             }
-            tokens.split(" ").into_iter().map(|s| (s.to_string(), "".to_string())).collect()
+            tokens
+                .split(" ")
+                .into_iter()
+                .map(|s| (s.to_string(), "".to_string()))
+                .collect()
         }
 
         let parser = example_parser();
 
-        let cases = vec![
-            "",
-            "EOF",
+        let cases = vec!["",
+                         "EOF",
 
-            "( ) EOF",
-            "( ( ) ) EOF",
+                         "( ) EOF",
+                         "( ( ) ) EOF",
 
-            "( ) ( ) EOF",
-            "( ) ( ) ( ) EOF",
+                         "( ) ( ) EOF",
+                         "( ) ( ) ( ) EOF",
 
-            "( ( ) ) ( ) EOF",
-            "( ( ) ) ( ) ( ) EOF",
+                         "( ( ) ) ( ) EOF",
+                         "( ( ) ) ( ) ( ) EOF",
 
-            "( ( ( ) ) ) ( ) EOF",
-            "( ( ( ) ) ) ( ( ) ) EOF",
-        ];
+                         "( ( ( ) ) ) ( ) EOF",
+                         "( ( ( ) ) ) ( ( ) ) EOF"];
 
         for case in cases {
             let tokens = lex(case);
