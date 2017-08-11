@@ -9,44 +9,12 @@ pub enum Action {
     Shift(Rc<BTreeSet<Item>>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StackEl {
+    Symbol(String),
+    State(Rc<BTreeSet<Item>>),
+}
 
-//TODO we need to avoid copying in goto and action and Action so much
-//Probably better to identify cc's as an index, and then refrence through out like that
-//because is expensive to copy it
-//I think that the only way right now is by using indices
-//so
-//action: HashMap<(usize, usize), Vec<Action>>
-//where the first usize is the index corresponding to cc_i
-//and the second is the index corresponding to a symbol in the grammar
-//
-//the same happens to goto
-//
-//so we basically need
-//## Grammar
-//- Symbol <-> number
-//- Production <-> number
-//
-//## Parser
-//- cc_i <-> number
-//
-//We can easily get number -> Any with Array
-//we can easily get Any -> number with a HashMap
-//
-//What about if we combie these two in a single data structure: CanonicalSet?
-//The contract is:
-//- cc.get_cc(i) -> cc_i
-//- cc.get_i(cc_i) -> i
-//- cc.insert(cc)
-//- cc.iter (access to the array)
-//
-//
-//what about using Rc?
-//because the above is very complicated
-//
-//
-//
-//TODO
-//print tables in a human readable way
 #[derive(Debug)]
 pub struct Parser {
     grammar: Grammar,
@@ -154,10 +122,22 @@ impl Parser {
             cc = cc.union(&new_cc).cloned().collect();
             new_cc.clear();
 
-            // TODO we have a method and a attribute goto, disambiugate this
             //println!("\nBUILD_CC>>>CC \n{}", Item::set_of_sets_to_string(&cc));
             for cc_i in &cc {
-                for item in cc_i.iter().filter(|&item| item.stacktop().is_some()) {
+                for item in cc_i.iter() {
+                    if item.is_complete() {
+                        let entry = self.action
+                            .entry((cc_i.clone(), item.lookahead.clone()))
+                            .or_insert(BTreeSet::new());
+
+                        if item.is_terminator() {
+                            entry.insert(Action::Accept);
+                        } else {
+                            entry.insert(Action::Reduce(item.to_prod()));
+                        }
+                        continue;
+                    }
+
                     let stacktop = item.stacktop().unwrap();
                     let next = self.goto(cc_i, &stacktop);
                     if next == None {
@@ -193,19 +173,102 @@ impl Parser {
         self.cc = cc;
     }
 
-    //TODO merge this with build_cc
-    pub fn build_action(&mut self) {
-        for cc_i in &self.cc {
-            for item in cc_i.iter().filter(|&item| item.is_complete()) {
-                let entry = self.action
-                    .entry((cc_i.clone(), item.lookahead.clone()))
-                    .or_insert(BTreeSet::new());
+    pub fn parse(&self, tokens: Vec<(String, String)>) -> Result<(), String>{
+        use StackEl::*;
+        use Action::*;
 
-                if item.is_terminator() {
-                    entry.insert(Action::Accept);
-                } else {
-                    entry.insert(Action::Reduce(item.to_prod()));
+        let mut stack = vec![Symbol(EOF.to_string()), State(self.index_to_cc.get(0).unwrap().clone())];
+        let mut index = 0;
+
+        //TODO abstract
+        let mut word = {
+            let word = tokens.get(index);
+            if word == None {
+                return Ok(());
+            }
+
+            index += 1;
+            word.unwrap()
+        };
+
+        if word.0.as_str() == EOF {
+            return Ok(());
+        }
+
+        loop {
+            // TODO abstract
+            let state = {
+                let state = stack.last();
+                if state == None {
+                    return Err("Empty stack".to_string());
                 }
+
+                if let &State(ref s) = state.unwrap() {
+                    s.clone()
+                } else {
+                    return Err("Attempting to read an invalid state from stack".to_string());
+                }
+            };
+
+            //TODO abstract
+            //TODO Try? or something similar
+            let actions = self.action.get(&(state.clone(), word.0.clone()));
+            if actions == None {
+                return Err(format!("Next action is empty"))
+            }
+            let actions = actions.unwrap();
+            assert_eq!(actions.len(), 1, "Found conflicts in the Action table");
+            match actions.iter().take(1).collect::<Vec<&Action>>()[0] {
+                &Reduce(ref prod) => {
+                    for _ in 0..prod.to.len() * 2 {
+                        if stack.pop() == None {
+                            return Err(format!("Empty stack"));
+                        }
+                    }
+
+                    // TODO abstract
+                    let state = {
+                        let state = stack.last();
+                        if state == None {
+                            return Err("Empty stack".to_string());
+                        }
+
+                        if let &State(ref s) = state.unwrap() {
+                            s.clone()
+                        } else {
+                            return Err("Attempting to read an invalid state from stack".to_string());
+                        }
+                    };
+
+                    stack.push(Symbol(prod.from.clone()));
+                    let next = self.goto_map.get(&(state, prod.from.clone()));
+                    //TODO Try?
+                    if next == None {
+                        return Err(format!("Next state is empty"));
+                    }
+                    let next = next.unwrap();
+                    assert_eq!(next.len(), 1, "Found conflicts in the Goto table");
+                    stack.push(State(next.iter().take(1).collect::<Vec<&Rc<BTreeSet<Item>>>>()[0].clone()));
+                },
+
+                &Shift(ref next_state) => {
+                    stack.push(Symbol(word.0.clone()));
+                    stack.push(State(next_state.clone()));
+                    //TODO abstract
+                    word = {
+                        let word = tokens.get(index);
+                        if word == None {
+                            return Err(format!("Bad token list termination"));
+                        }
+
+                        index += 1;
+                        word.unwrap()
+                    };
+                },
+
+                &Accept => {
+                    return Ok(());
+                },
             }
         }
     }
@@ -222,6 +285,7 @@ impl Parser {
 
 
     pub fn print_tables(&self) {
+        println!("");
         println!("ACTION");
         println!("======");
 
@@ -229,6 +293,20 @@ impl Parser {
             let i = self.cc_to_index.get(cc_i).unwrap();
             let a = self.set_of_actions_to_string(&action);
             println!("{:<4} {:<4} -> {}", i, symbol, a);
+        }
+
+        println!("");
+        println!("GOTO");
+        println!("======");
+
+        for (&(ref cc_i, ref symbol), next) in &self.goto_map {
+            let i = self.cc_to_index.get(cc_i).unwrap();
+            let j = next.iter()
+                .map(|next| self.cc_to_index.get(next).unwrap())
+                .map(|j| j.to_string())
+                .collect::<Vec<String>>()
+                .join(", ");
+            println!("{:<4} {:<4} -> {}", i, symbol, j);
         }
     }
 
@@ -255,8 +333,7 @@ impl Parser {
 
 
     pub fn pretty_print_tables(&self) {
-
-
+        println!("");
         println!("ACTION");
         println!("======");
         let mut rows: Vec<Vec<String>> = vec![];
@@ -277,20 +354,7 @@ impl Parser {
                 if action == None {
                     row.push("".to_string());
                 } else {
-                    let s = action
-                        .unwrap()
-                        .iter()
-                        .map(|a| match a {
-                                 &Action::Accept => "Accept".to_string(),
-                                 &Action::Reduce(ref prod) => format!("{}", prod),
-                                 &Action::Shift(ref cc_i) => {
-                                     format!("Shift({})", self.cc_to_index.get(cc_i).unwrap())
-                                 }
-                             })
-                        .collect::<Vec<String>>()
-                        .join(", ");
-
-                    row.push(s);
+                    row.push(self.set_of_actions_to_string(action.unwrap()));
                 }
             }
 
@@ -309,7 +373,7 @@ impl Parser {
             println!("");
         }
 
-        println!("\n");
+        println!("");
         println!("GOTO");
         println!("====");
         let mut rows: Vec<Vec<String>> = vec![];
@@ -483,7 +547,6 @@ mod tests {
         use Action::*;
         let mut parser = example_parser();
         parser.build_cc();
-        parser.build_action();
         let cc_vec = paretheses_cc();
         let prods = parser.grammar.productions.clone();
 
@@ -569,13 +632,10 @@ mod tests {
     fn tables_test() {
         let mut parser = example_parser();
         parser.build_cc();
-        parser.build_action();
 
         parser.print_cc();
         parser.print_tables();
-        //println!("{:?}", parser.goto);
-        //println!("{:?}", parser.action);
-
+        parser.pretty_print_tables();
     }
 
     fn paretheses_cc() -> Vec<Rc<BTreeSet<Item>>> {
