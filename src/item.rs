@@ -13,12 +13,10 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn new_simple<T: Into<String> + Clone>(from: T,
-                                               to: Vec<T>,
-                                               stacktop: usize,
-                                               lookahead: T)
-                                               -> Item {
-        let to = to.iter().cloned().map(|s| s.into()).collect();
+    pub fn new_simple<T>(from: T, to: Vec<T>, stacktop: usize, lookahead: T) -> Item
+        where T: Into<String> + Clone
+    {
+        let to = to.into_iter().map(|s| s.into()).collect();
         Item::new(from.into(), to, stacktop, lookahead.into())
     }
 

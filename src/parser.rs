@@ -8,6 +8,8 @@ use super::{Grammar, Production, EOF, Item};
 //since they are like 150 lines of code
 //
 //
+//Write a method that verifies that there are no conflicts in the action table
+//
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
     Accept,
@@ -214,7 +216,7 @@ impl Parser {
             .get(key)
             .ok_or(format!("Next state is empty"))
             .and_then(|states| if states.len() != 1 {
-                          Err(format!("Found conflicts in the Goto table"))
+                          Err(format!("Something really bad happened"))
                       } else {
                           Ok(states)
                       })
