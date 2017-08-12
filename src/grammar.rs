@@ -4,6 +4,8 @@ use std::fmt;
 
 //TODO figure out a way of encoding being a terminal or not in the symbol itself
 //perhaps by an enum, and by clasifying that when creating the grammar
+//
+//TODO make calc_first better
 use super::{LAMBDA, EOF};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -116,7 +118,6 @@ impl Grammar {
     fn calc_first(&self) -> HashMap<String, BTreeSet<String>> {
         let mut first_map: HashMap<String, BTreeSet<String>> = HashMap::new();
 
-        //TODO create a method to get this, since is kind of used through out
         let specials: BTreeSet<String> = vec![EOF.to_string(), LAMBDA.to_string()]
             .iter()
             .cloned()

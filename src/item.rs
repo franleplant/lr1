@@ -35,11 +35,6 @@ impl Item {
         Item::new(prod, 0, lookahead)
     }
 
-    //TODO rename, probably not needed anymore
-    pub fn to_prod(&self) -> Rc<Production> {
-        self.prod.clone()
-    }
-
     pub fn set_to_string(items: &BTreeSet<Item>) -> String {
         items
             .iter()
@@ -69,26 +64,25 @@ impl Item {
         self.prod.from.as_str() == FAKE_GOAL && self.stacktop == 1 && self.is_complete()
     }
 
-    pub fn stacktop(&self) -> Option<String> {
+    pub fn stacktop(&self) -> Option<&String> {
         if self.stacktop == self.prod.to.len() {
             // Item complete
             return None;
         } else if self.stacktop < self.prod.to.len() {
-            return self.prod.to.get(self.stacktop).map(|s| s.clone());
+            return self.prod.to.get(self.stacktop);
         } else {
             panic!("Stacktop out of bounds")
         }
     }
 
-    //TODO return a slice
-    pub fn after_stacktop(&self) -> Vec<String> {
-        self.prod.to[self.stacktop + 1..].to_vec()
+    pub fn after_stacktop(&self) -> &[String] {
+        &self.prod.to[self.stacktop + 1..]
     }
 
     pub fn after_stacktop_and_lookahead(&self) -> Vec<String> {
-        let mut rest = self.after_stacktop();
-        rest.push(self.lookahead.clone());
-        rest
+        let head = self.after_stacktop();
+        let tail = &[self.lookahead.clone()];
+        head.iter().chain(tail.iter()).cloned().collect()
     }
 
     pub fn clone_with_next_stacktop(&self) -> Item {

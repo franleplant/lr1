@@ -75,12 +75,12 @@ impl Parser {
                 items
                     .iter()
                     .filter(|item| item.stacktop().is_some())
-                    .filter(|item| self.grammar.is_non_terminal(&item.stacktop().unwrap()))
-                    .filter(|item| self.grammar.get_prods(&item.stacktop().unwrap()).is_some());
+                    .filter(|item| self.grammar.is_non_terminal(item.stacktop().unwrap()))
+                    .filter(|item| self.grammar.get_prods(item.stacktop().unwrap()).is_some());
 
 
             for item in filtered_items {
-                for prod in self.grammar.get_prods(&item.stacktop().unwrap()).unwrap() {
+                for prod in self.grammar.get_prods(item.stacktop().unwrap()).unwrap() {
                     let first = self.grammar.first_of(&item.after_stacktop_and_lookahead());
                     if first == None {
                         continue;
@@ -105,7 +105,7 @@ impl Parser {
         let next: BTreeSet<Item> = items
             .iter()
             .filter(|&item| item.stacktop().is_some())
-            .filter(|&item| &item.stacktop().unwrap() == x)
+            .filter(|&item| item.stacktop().unwrap() == x)
             .map(|item| item.clone_with_next_stacktop())
             .collect();
 
@@ -149,7 +149,7 @@ impl Parser {
                         if item.is_terminator() {
                             entry.insert(Action::Accept);
                         } else {
-                            entry.insert(Action::Reduce(item.to_prod()));
+                            entry.insert(Action::Reduce(item.prod.clone()));
                         }
                         continue;
                     }
@@ -170,14 +170,14 @@ impl Parser {
 
                     if self.grammar.is_terminal(&stacktop) {
                         let entry = self.action
-                            .entry((cc_i.clone(), stacktop))
+                            .entry((cc_i.clone(), stacktop.clone()))
                             .or_insert(BTreeSet::new());
 
                         entry.insert(Action::Shift(next.clone()));
 
                     } else {
                         let entry = self.goto_map
-                            .entry((cc_i.clone(), stacktop))
+                            .entry((cc_i.clone(), stacktop.clone()))
                             .or_insert(BTreeSet::new());
                         entry.insert(next.clone());
                     }
