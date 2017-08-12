@@ -2,20 +2,19 @@ use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
 use std::fmt;
 
-//TODO figure out a way of encoding being a terminal or not in the symbol itself
-//perhaps by an enum, and by clasifying that when creating the grammar
-//
-//TODO make calc_first better
-use super::{LAMBDA, EOF};
+//TODO grammar.prod_map should go to Rc<Prod>
+//TODO store the terminals into a prop and maintain the same api but with references
+use super::{FAKE_GOAL, LAMBDA, EOF, Symbol};
+
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Production {
-    pub from: String,
-    pub to: Vec<String>,
+    pub from: Symbol,
+    pub to: Vec<Symbol>,
 }
 
 impl Production {
-    pub fn new(from: String, to: Vec<String>) -> Production {
+    pub fn new(from: Symbol, to: Vec<Symbol>) -> Production {
         Production { from: from, to: to }
     }
 }
@@ -35,58 +34,77 @@ impl fmt::Display for Production {
 
 #[derive(Debug)]
 pub struct Grammar {
-    pub goal: String,
+    pub goal: Symbol,
     pub productions: Vec<Rc<Production>>,
-    pub non_terminals: BTreeSet<String>,
-    pub terminals: BTreeSet<String>,
-    prod_map: HashMap<String, Vec<usize>>,
-    first_map: HashMap<String, BTreeSet<String>>,
+    prod_map: HashMap<Symbol, Vec<usize>>,
+    first_map: HashMap<Symbol, BTreeSet<Symbol>>,
+    symbols: Vec<Symbol>,
 }
 
 impl Grammar {
     pub fn new_simple<T>(goal: T, non_terminals: Vec<T>, prods: Vec<(T, Vec<T>)>) -> Grammar
         where T: Into<String> + Clone
     {
-        let non_terminals = non_terminals.iter().cloned().map(|s| s.into()).collect();
+        let non_terminals: BTreeSet<String> = non_terminals.iter().cloned().map(|s| s.into()).collect();
+
         let prods = prods
-            .iter()
-            .cloned()
+            .into_iter()
             .map(|(from, to)| {
-                     let to = to.iter().cloned().map(|s| s.into()).collect();
-                     Rc::new(Production::new(from.into(), to))
+                    let from: String = from.into();
+                    assert!(non_terminals.contains(&from), "Unexpected terminal in prod.from");
+                    let from = Symbol::NT(from);
+                    let to = to.into_iter().map(|s| s.into())
+                        .map(|s| {
+                            if non_terminals.contains(&s) {
+                                Symbol::NT(s)
+                            } else {
+                                Symbol::T(s)
+                            }
+                        })
+                        .collect();
+
+                     Rc::new(Production::new(from, to))
                  })
             .collect();
 
-        Grammar::new(goal.into(), non_terminals, prods)
+
+        let goal: String = goal.into();
+        assert!(non_terminals.contains(&goal), "Unexpected terminal goal");
+        let goal = Symbol::NT(goal);
+
+        Grammar::new(goal, prods)
     }
 
-    //TODO let prod map be a map to Rc<Prod>
-    pub fn new(goal: String, non_terminals: Vec<String>, prods: Vec<Rc<Production>>) -> Grammar {
-        let mut prod_map = HashMap::new();
-        for (i, ref prod) in prods.iter().enumerate() {
-            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(i);
-        }
+    pub fn new(goal: Symbol, prods: Vec<Rc<Production>>) -> Grammar {
+        assert!(goal.is_non_terminal(), "Unexpected terminal goal");
 
-        let mut non_terminals: BTreeSet<String> = non_terminals.iter().cloned().collect();
-        non_terminals.insert(goal.clone());
+        let mut prod_map = HashMap::new();
+        let mut symbols = vec![goal.clone()];
+        for (i, ref prod) in prods.iter().enumerate() {
+            assert!(prod.from.is_non_terminal(), "Unexpected terminal in prod.from");
+            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(i);
+            symbols.push(prod.from.clone());
+            //TODO can we improve this?
+            for s in &prod.to {
+                symbols.push(s.clone());
+            }
+        }
 
         let mut grammar = Grammar {
             goal: goal,
-            non_terminals: non_terminals,
-            terminals: BTreeSet::new(),
             productions: prods,
             prod_map: prod_map,
+            symbols: symbols,
             first_map: HashMap::new(),
         };
 
-        grammar.terminals = grammar.calc_terminals();
         grammar.first_map = grammar.calc_first();
 
         grammar
     }
 
-    pub fn get_prods(&self, from: &String) -> Option<Vec<&Rc<Production>>> {
-        if self.is_terminal(from) {
+    pub fn get_prods(&self, from: &Symbol) -> Option<Vec<&Rc<Production>>> {
+        if from.is_terminal() {
             return None;
         }
 
@@ -103,33 +121,22 @@ impl Grammar {
 
     }
 
-    fn calc_terminals(&self) -> BTreeSet<String> {
-        self.productions
-            .iter()
-            .flat_map(|prod| {
-                          let mut symbols = prod.to.clone();
-                          symbols.push(prod.from.clone());
-                          symbols
-                      })
-            .filter(|symbol| !self.non_terminals.contains(symbol))
-            .collect()
-    }
+    fn calc_first(&self) -> HashMap<Symbol, BTreeSet<Symbol>> {
+        use Symbol::*;
 
-    fn calc_first(&self) -> HashMap<String, BTreeSet<String>> {
-
-        let mut first_map: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut first_map: HashMap<Symbol, BTreeSet<Symbol>> = HashMap::new();
         let mut first_map_snapshot = HashMap::new();
 
-        let lambda_set = vec![LAMBDA.to_string()].into_iter().collect();
-        let specials = vec![EOF.to_string(), LAMBDA.to_string()]
+        let lambda_set = vec![T(LAMBDA.to_string())].into_iter().collect();
+        let specials = vec![T(EOF.to_string()), T(LAMBDA.to_string())]
             .into_iter()
             .collect();
 
-        for t in self.terminals.union(&specials) {
+        for t in self.terminals().union(&specials) {
             first_map.insert(t.clone(), vec![t.clone()].into_iter().collect());
         }
 
-        for nt in &self.non_terminals {
+        for nt in &self.non_terminals() {
             first_map.insert(nt.clone(), vec![].into_iter().collect());
         }
 
@@ -142,7 +149,7 @@ impl Grammar {
                     .enumerate()
                     .take_while(|&(i, _)| {
                                     i == 0 ||
-                                    first_map.get(&prod.to[i - 1]).unwrap().contains(LAMBDA)
+                                    first_map.get(&prod.to[i - 1]).unwrap().contains(&T(LAMBDA.to_string()))
                                 })
                     .fold(BTreeSet::new(), |acc, (i, symbol)| {
                         let first_i = first_map.get(symbol).unwrap();
@@ -164,15 +171,21 @@ impl Grammar {
         first_map
     }
 
-    pub fn is_non_terminal(&self, symbol: &String) -> bool {
-        self.non_terminals.contains(symbol)
+    pub fn terminals(&self) -> BTreeSet<Symbol> {
+        self.symbols.iter()
+            .filter(|s| s.is_terminal())
+            .cloned()
+            .collect()
     }
 
-    pub fn is_terminal(&self, symbol: &String) -> bool {
-        self.terminals.contains(symbol)
+    pub fn non_terminals(&self) -> BTreeSet<Symbol> {
+        self.symbols.iter()
+            .filter(|s| s.is_non_terminal())
+            .cloned()
+            .collect()
     }
 
-    pub fn first_of(&self, symbols: &Vec<String>) -> Option<BTreeSet<String>> {
+    pub fn first_of(&self, symbols: &Vec<Symbol>) -> Option<BTreeSet<Symbol>> {
         let mut first = BTreeSet::new();
 
         let first_by_symbol = symbols
@@ -185,7 +198,7 @@ impl Grammar {
 
         for symbol_first in first_by_symbol {
             first = first.union(symbol_first).cloned().collect();
-            if !symbol_first.contains(LAMBDA) {
+            if !symbol_first.contains(&Symbol::T(LAMBDA.to_string())) {
                 return Some(first);
             }
         }
@@ -194,26 +207,18 @@ impl Grammar {
     }
 
     pub fn with_fake_goal(&self) -> Grammar {
-        let fake_goal = "FAKE_GOAL".to_string();
-        let non_terminals = {
-            let mut non_terminals = self.non_terminals.clone();
-            non_terminals.insert(fake_goal.clone());
-            non_terminals.iter().cloned().collect()
-        };
-
+        let fake_goal = Symbol::new_nt(FAKE_GOAL);
         let fake_prod = Production::new(fake_goal.clone(), vec![self.goal.clone()]);
         let prods = [vec![Rc::new(fake_prod)], self.productions.clone()].concat();
 
-        Grammar::new(fake_goal, non_terminals, prods)
+        Grammar::new(fake_goal, prods)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn grammar_creation() {
+    fn example_grammar() -> Grammar {
         let non_terminals = vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"];
 
         let prods = vec![("Goal", vec!["Expr"]),
@@ -234,28 +239,46 @@ mod tests {
                          ("Factor", vec!["num"]),
                          ("Factor", vec!["name"])];
 
-        let g = Grammar::new_simple("Goal", non_terminals, prods);
+        Grammar::new_simple("Goal", non_terminals, prods)
+    }
 
-        assert_eq!(g.terminals,
+    #[test]
+    fn grammar_creation() {
+        use Symbol::*;
+        let g = example_grammar();
+
+        assert_eq!(g.terminals(),
                    vec!["+", "-", "x", "%", LAMBDA, "(", ")", "num", "name"]
-                       .iter()
+                       .into_iter()
                        .map(|s| s.to_string())
+                       .map(|s| T(s))
                        .collect());
 
-        assert_eq!(g.non_terminals,
+        assert_eq!(g.non_terminals(),
                    vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"]
-                       .iter()
+                       .into_iter()
                        .map(|s| s.to_string())
+                       .map(|s| NT(s))
                        .collect());
 
-        for t in &g.terminals {
+    }
+
+    #[test]
+    fn first_of_terminals() {
+        let g = example_grammar();
+
+        for t in &g.terminals() {
             assert_eq!(g.first_map.get(t).unwrap(),
                        &vec![t.clone()]
-                            .iter()
-                            .cloned()
-                            .collect::<BTreeSet<String>>());
+                            .into_iter()
+                            .collect());
         }
+    }
 
+    #[test]
+    fn first_of_non_terminals() {
+        use Symbol::*;
+        let g = example_grammar();
 
         let cases = vec![("Goal", vec!["(", "name", "num"]),
                          ("Expr", vec!["(", "name", "num"]),
@@ -265,12 +288,12 @@ mod tests {
                          ("Factor", vec!["(", "name", "num"])];
 
         for &(ref nt, ref first) in &cases {
-            let actual = g.first_map.get(&nt.to_string()).unwrap();
+            let actual = g.first_map.get(&NT(nt.to_string())).unwrap();
             let expected = first
-                .iter()
-                .cloned()
+                .into_iter()
                 .map(|s| s.to_string())
-                .collect::<BTreeSet<String>>();
+                .map(|s| T(s))
+                .collect::<BTreeSet<Symbol>>();
 
             assert_eq!(actual,
                        &expected,
@@ -280,13 +303,18 @@ mod tests {
                        actual,
                        expected);
         }
+    }
 
-        assert_eq!(g.first_of(&vec!["Expr'".to_string(), "x".to_string()])
+    #[test]
+    fn first_of_symbols() {
+        use Symbol::*;
+        let g = example_grammar();
+        assert_eq!(g.first_of(&vec![NT("Expr'".to_string()), T("x".to_string())])
                        .unwrap(),
                    vec!["+", "-", LAMBDA, "x"]
-                       .iter()
-                       .cloned()
+                       .into_iter()
                        .map(|s| s.to_string())
-                       .collect::<BTreeSet<String>>())
+                        .map(|s| T(s))
+                       .collect::<BTreeSet<Symbol>>())
     }
 }

@@ -2,28 +2,49 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::fmt;
 
-//TODO reduce use of clone for non Rc things
-//fix to_prod method
-//try to return slices from methods that return array of symbols
-use super::{FAKE_GOAL, Production};
+use super::{FAKE_GOAL, Production, Symbol, Grammar};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Item {
     pub prod: Rc<Production>,
-    pub lookahead: String,
+    pub lookahead: Symbol,
     pub stacktop: usize,
 }
 
 impl Item {
-    pub fn new_simple<T>(from: T, to: Vec<T>, stacktop: usize, lookahead: T) -> Item
+    pub fn from_str<T>(from: T, to: Vec<T>, stacktop: usize, lookahead: T, grammar: &Grammar) -> Item
         where T: Into<String> + Clone
     {
-        let to = to.into_iter().map(|s| s.into()).collect();
-        let prod = Production::new(from.into(), to);
-        Item::new(Rc::new(prod), stacktop, lookahead.into())
+        let non_terminals: BTreeSet<String> = grammar.non_terminals().iter().map(|s| s.to_string()).cloned().collect();
+
+        let from: String = from.into();
+        assert!(non_terminals.contains(&from), "From needs to be a Non Terminal! got {} and NonTerminals {:?}", from, non_terminals);
+
+        let from = Symbol::NT(from);
+        let to = to
+            .into_iter()
+            .map(|s| s.into())
+            .map(|s| {
+                if non_terminals.contains(&s) {
+                    Symbol::NT(s)
+                } else {
+                    Symbol::T(s)
+                }
+            })
+            .collect();
+
+        let lookahead: String = lookahead.into();
+        let lookahead = if non_terminals.contains(&lookahead) {
+            Symbol::NT(lookahead)
+        } else {
+            Symbol::T(lookahead)
+        };
+
+        let prod = Production::new(from, to);
+        Item::new(Rc::new(prod), stacktop, lookahead)
     }
 
-    pub fn new(prod: Rc<Production>, stacktop: usize, lookahead: String) -> Item {
+    pub fn new(prod: Rc<Production>, stacktop: usize, lookahead: Symbol) -> Item {
         Item {
             prod: prod,
             stacktop: stacktop,
@@ -31,7 +52,7 @@ impl Item {
         }
     }
 
-    pub fn from_production(prod: Rc<Production>, lookahead: String) -> Item {
+    pub fn from_production(prod: Rc<Production>, lookahead: Symbol) -> Item {
         Item::new(prod, 0, lookahead)
     }
 
@@ -64,7 +85,7 @@ impl Item {
         self.prod.from.as_str() == FAKE_GOAL && self.stacktop == 1 && self.is_complete()
     }
 
-    pub fn stacktop(&self) -> Option<&String> {
+    pub fn stacktop(&self) -> Option<&Symbol> {
         if self.stacktop == self.prod.to.len() {
             // Item complete
             return None;
@@ -75,11 +96,11 @@ impl Item {
         }
     }
 
-    pub fn after_stacktop(&self) -> &[String] {
+    pub fn after_stacktop(&self) -> &[Symbol] {
         &self.prod.to[self.stacktop + 1..]
     }
 
-    pub fn after_stacktop_and_lookahead(&self) -> Vec<String> {
+    pub fn after_stacktop_and_lookahead(&self) -> Vec<Symbol> {
         let head = self.after_stacktop();
         let tail = &[self.lookahead.clone()];
         head.iter().chain(tail.iter()).cloned().collect()
@@ -99,11 +120,11 @@ impl Item {
 
 impl fmt::Display for Item {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let to: Vec<String> = self.prod.to.iter().map(|s| s.to_string()).cloned().collect();
         let to_str: String = if self.stacktop() == None {
-            format!("{} •", self.prod.to.join(" "))
+            format!("{} •", to.join(" "))
         } else {
-            self.prod
-                .to
+            to
                 .iter()
                 .enumerate()
                 .map(|(i, s)| if i == self.stacktop {

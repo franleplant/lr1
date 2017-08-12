@@ -1,7 +1,7 @@
 use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
 use std::cell::RefCell;
-use super::{Grammar, Production, EOF, Item};
+use super::{Symbol, Grammar, Production, EOF, Item};
 
 //TODO
 //it'd be nice to have all the printing functions someother place,
@@ -19,7 +19,7 @@ pub enum Action {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StackEl {
-    Symbol(String),
+    Symbol(Symbol),
     State(Rc<BTreeSet<Item>>),
 }
 
@@ -27,8 +27,8 @@ pub enum StackEl {
 pub struct Parser {
     grammar: Grammar,
     cc: BTreeSet<Rc<BTreeSet<Item>>>,
-    goto_map: HashMap<(Rc<BTreeSet<Item>>, String), BTreeSet<Rc<BTreeSet<Item>>>>,
-    action: HashMap<(Rc<BTreeSet<Item>>, String), BTreeSet<Action>>,
+    goto_map: HashMap<(Rc<BTreeSet<Item>>, Symbol), BTreeSet<Rc<BTreeSet<Item>>>>,
+    action: HashMap<(Rc<BTreeSet<Item>>, Symbol), BTreeSet<Action>>,
 
     index_to_cc: Vec<Rc<BTreeSet<Item>>>,
     cc_to_index: HashMap<Rc<BTreeSet<Item>>, usize>,
@@ -39,7 +39,7 @@ pub struct Parser {
 impl Parser {
     pub fn new(g: Grammar) -> Parser {
         let mut p = Parser {
-            grammar: g,
+            grammar: g.with_fake_goal(),
             cc: BTreeSet::new(),
             goto_map: HashMap::new(),
             action: HashMap::new(),
@@ -75,7 +75,7 @@ impl Parser {
                 items
                     .iter()
                     .filter(|item| item.stacktop().is_some())
-                    .filter(|item| self.grammar.is_non_terminal(item.stacktop().unwrap()))
+                    .filter(|item| item.stacktop().unwrap().is_non_terminal())
                     .filter(|item| self.grammar.get_prods(item.stacktop().unwrap()).is_some());
 
 
@@ -101,7 +101,7 @@ impl Parser {
         Rc::new(items)
     }
 
-    pub fn goto(&self, items: &BTreeSet<Item>, x: &String) -> Option<Rc<BTreeSet<Item>>> {
+    pub fn goto(&self, items: &BTreeSet<Item>, x: &Symbol) -> Option<Rc<BTreeSet<Item>>> {
         let next: BTreeSet<Item> = items
             .iter()
             .filter(|&item| item.stacktop().is_some())
@@ -119,7 +119,7 @@ impl Parser {
 
     pub fn build_cc(&mut self) {
         let cc0 = {
-            let item = Item::from_production(self.grammar.productions[0].clone(), EOF.to_string());
+            let item = Item::from_production(self.grammar.productions[0].clone(), Symbol::new_t(EOF));
             let mut set = BTreeSet::new();
             set.insert(item);
             self.closure(&set)
@@ -168,7 +168,7 @@ impl Parser {
                         }
                     }
 
-                    if self.grammar.is_terminal(&stacktop) {
+                    if stacktop.is_terminal() {
                         let entry = self.action
                             .entry((cc_i.clone(), stacktop.clone()))
                             .or_insert(BTreeSet::new());
@@ -190,7 +190,7 @@ impl Parser {
     }
 
     fn get_single_action<'a, 'b>(&'a self,
-                                 key: &'b (Rc<BTreeSet<Item>>, String))
+                                 key: &'b (Rc<BTreeSet<Item>>, Symbol))
                                  -> Result<&'a Action, String> {
         let &(ref s, ref x) = key;
         let action = self.action.get(key);
@@ -210,7 +210,7 @@ impl Parser {
     }
 
     fn get_single_goto<'a, 'b>(&'a self,
-                               key: &'b (Rc<BTreeSet<Item>>, String))
+                               key: &'b (Rc<BTreeSet<Item>>, Symbol))
                                -> Result<&'a Rc<BTreeSet<Item>>, String> {
         self.goto_map
             .get(key)
@@ -237,13 +237,12 @@ impl Parser {
     pub fn parse<I>(&self, mut tokens: I) -> Result<(), String>
         where I: Iterator<Item = (String, String)>
     {
-        use StackEl::*;
         use Action::*;
 
         {
             let mut stack = self.stack.borrow_mut();
-            *stack = vec![Symbol(EOF.to_string()),
-                          State(self.index_to_cc.get(0).unwrap().clone())];
+            *stack = vec![StackEl::Symbol(Symbol::eof()),
+                          StackEl::State(self.index_to_cc.get(0).unwrap().clone())];
         }
 
 
@@ -262,7 +261,7 @@ impl Parser {
 
         loop {
             let state = self.get_stacktop_state()?;
-            let action = self.get_single_action(&(state.clone(), word.0.clone()))?;
+            let action = self.get_single_action(&(state.clone(), Symbol::new_t(&word.0)))?;
 
             match action {
                 &Reduce(ref prod) => {
@@ -272,14 +271,14 @@ impl Parser {
 
                     let state = self.get_stacktop_state()?;
                     let next = self.get_single_goto(&(state, prod.from.clone()))?;
-                    self.stack.borrow_mut().push(Symbol(prod.from.clone()));
-                    self.stack.borrow_mut().push(State(next.clone()));
+                    self.stack.borrow_mut().push(StackEl::Symbol(prod.from.clone()));
+                    self.stack.borrow_mut().push(StackEl::State(next.clone()));
                 }
 
                 &Shift(ref next_state) => {
                     let mut stack = self.stack.borrow_mut();
-                    stack.push(Symbol(word.0.clone()));
-                    stack.push(State(next_state.clone()));
+                    stack.push(StackEl::Symbol(Symbol::new_t(&word.0)));
+                    stack.push(StackEl::State(next_state.clone()));
 
                     word = tokens
                         .next()
@@ -299,7 +298,7 @@ impl Parser {
             .borrow()
             .iter()
             .map(|el| match el {
-                     &StackEl::Symbol(ref s) => s.clone(),
+                     &StackEl::Symbol(ref s) => s.to_string().clone(),
                      &StackEl::State(ref s) => self.cc_to_index.get(s).unwrap().to_string(),
                  })
             .collect::<Vec<String>>()
@@ -372,18 +371,18 @@ impl Parser {
         let mut rows: Vec<Vec<String>> = vec![];
 
         let mut first_row = vec!["".to_string(), EOF.to_string()];
-        first_row.append(&mut self.grammar.terminals.iter().cloned().collect());
+        first_row.append(&mut self.grammar.terminals().iter().map(|s| s.to_string()).cloned().collect());
 
         rows.push(first_row);
 
 
         let mut terminals = vec![EOF.to_string()];
-        terminals.append(&mut self.grammar.terminals.iter().cloned().collect());
+        terminals.append(&mut self.grammar.terminals().iter().map(|s| s.to_string()).cloned().collect());
 
         for (i, cc_i) in self.index_to_cc.iter().enumerate() {
             let mut row = vec![i.to_string()];
             for t in &terminals {
-                let action = self.action.get(&(cc_i.clone(), t.clone()));
+                let action = self.action.get(&(cc_i.clone(), Symbol::new_t(t)));
                 if action == None {
                     row.push("".to_string());
                 } else {
@@ -412,13 +411,13 @@ impl Parser {
         let mut rows: Vec<Vec<String>> = vec![];
 
         let mut first_row = vec!["".to_string()];
-        first_row.append(&mut self.grammar.non_terminals.iter().cloned().collect());
+        first_row.append(&mut self.grammar.non_terminals().iter().map(|s| s.to_string()).cloned().collect());
 
         rows.push(first_row);
 
         for (i, cc_i) in self.cc.iter().enumerate() {
             let mut row = vec![i.to_string()];
-            for nt in &self.grammar.non_terminals {
+            for nt in &self.grammar.non_terminals() {
                 let next = self.goto_map.get(&(cc_i.clone(), nt.clone()));
                 if next == None {
                     row.push("".to_string());
@@ -447,43 +446,27 @@ mod tests {
     use super::*;
     use super::super::{FAKE_GOAL, EOF};
 
-    fn paretheses_grammar() -> Grammar {
-        let non_terminals = vec!["List", "Pair"];
-
-        let prods = vec![("List", vec!["List", "Pair"]),
-                         ("List", vec!["Pair"]),
-
-                         ("Pair", vec!["(", "Pair", ")"]),
-                         ("Pair", vec!["(", ")"])];
-
-        let g = Grammar::new_simple("List", non_terminals, prods);
-        g
-    }
-
-    fn example_parser() -> Parser {
-        let g = paretheses_grammar();
-        Parser::new(g.with_fake_goal())
-    }
 
     #[test]
     fn closure_and_goto_test() {
         let parser = example_parser();
+        let g = &parser.grammar;
         let first_prod = parser.grammar.productions[0].clone();
-        let item = Item::from_production(first_prod, EOF.to_string());
+        let item = Item::from_production(first_prod, Symbol::T(EOF.to_string()));
         let items: BTreeSet<Item> = vec![item].iter().cloned().collect();
         let cc0 = parser.closure(&items);
 
         let actual = &cc0;
-        let expected = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 0, EOF),
-                            Item::new_simple("List", vec!["List", "Pair"], 0, EOF),
-                            Item::new_simple("List", vec!["List", "Pair"], 0, "("),
-                            Item::new_simple("List", vec!["Pair"], 0, EOF),
-                            Item::new_simple("List", vec!["Pair"], 0, "("),
+        let expected = vec![Item::from_str(FAKE_GOAL, vec!["List"], 0, EOF, g),
+                            Item::from_str("List", vec!["List", "Pair"], 0, EOF, g),
+                            Item::from_str("List", vec!["List", "Pair"], 0, "(", g),
+                            Item::from_str("List", vec!["Pair"], 0, EOF, g),
+                            Item::from_str("List", vec!["Pair"], 0, "(", g),
 
-                            Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, EOF),
-                            Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, "("),
-                            Item::new_simple("Pair", vec!["(", ")"], 0, EOF),
-                            Item::new_simple("Pair", vec!["(", ")"], 0, "(")]
+                            Item::from_str("Pair", vec!["(", "Pair", ")"], 0, EOF, g),
+                            Item::from_str("Pair", vec!["(", "Pair", ")"], 0, "(", g),
+                            Item::from_str("Pair", vec!["(", ")"], 0, EOF, g),
+                            Item::from_str("Pair", vec!["(", ")"], 0, "(", g)]
                 .iter()
                 .cloned()
                 .collect();
@@ -496,15 +479,15 @@ mod tests {
                    Item::set_to_string(&actual),
                    Item::set_to_string(&expected));
 
-        let actual = parser.goto(&cc0, &"(".to_string()).unwrap();
-        let expected = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, EOF),
-                            Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, "("),
+        let actual = parser.goto(&cc0, &Symbol::T("(".to_string())).unwrap();
+        let expected = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 1, EOF, g),
+                            Item::from_str("Pair", vec!["(", "Pair", ")"], 1, "(", g),
 
-                            Item::new_simple("Pair", vec!["(", ")"], 1, EOF),
-                            Item::new_simple("Pair", vec!["(", ")"], 1, "("),
+                            Item::from_str("Pair", vec!["(", ")"], 1, EOF, g),
+                            Item::from_str("Pair", vec!["(", ")"], 1, "(", g),
 
-                            Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, ")"),
-                            Item::new_simple("Pair", vec!["(", ")"], 0, ")")]
+                            Item::from_str("Pair", vec!["(", "Pair", ")"], 0, ")", g),
+                            Item::from_str("Pair", vec!["(", ")"], 0, ")", g)]
                 .iter()
                 .cloned()
                 .collect();
@@ -519,10 +502,12 @@ mod tests {
 
     #[test]
     fn goto_test2() {
+        use Symbol::*;
         let parser = example_parser();
         let cc_vec = paretheses_cc();
 
-        let col = vec!["Goal", "List", "Pair", "(", ")", EOF];
+        let col = vec![NT("Goal".to_string()), NT("List".to_string()), NT("Pair".to_string()),
+        T("(".to_string()), T(")".to_string()), T(EOF.to_string())];
 
         let expected = vec![[None,
                              Some(cc_vec[1].clone()),
@@ -564,7 +549,7 @@ mod tests {
 
         for (i, row) in expected.iter().enumerate() {
             for (j, e) in row.iter().enumerate() {
-                let a = parser.goto(&cc_vec[i], &col[j].to_string());
+                let a = parser.goto(&cc_vec[i], &col[j]);
 
                 assert_eq!(a.clone(), e.clone(), "\nFrom {:?}\nActual {:?}\nExpected {:?}",
                            Item::set_to_string(&cc_vec[i]),
@@ -618,7 +603,7 @@ mod tests {
 
         for (i, row) in expected.iter().enumerate() {
             for (j, e) in row.iter().enumerate() {
-                let a = parser.action.get(&(cc_vec[i].clone(), col[j].to_string()));
+                let a = parser.action.get(&(cc_vec[i].clone(), Symbol::T(col[j].to_string())));
 
                 let e = e.clone()
                     .map(|a| {
@@ -705,95 +690,114 @@ mod tests {
         }
     }
 
+    fn paretheses_grammar() -> Grammar {
+        let non_terminals = vec!["List", "Pair"];
+
+        let prods = vec![("List", vec!["List", "Pair"]),
+                         ("List", vec!["Pair"]),
+
+                         ("Pair", vec!["(", "Pair", ")"]),
+                         ("Pair", vec!["(", ")"])];
+
+        let g = Grammar::new_simple("List", non_terminals, prods);
+        g
+    }
+
+    fn example_parser() -> Parser {
+        let g = paretheses_grammar();
+        Parser::new(g)
+    }
+
     fn paretheses_cc() -> Vec<Rc<BTreeSet<Item>>> {
-        let cc0 = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 0, EOF),
-                       Item::new_simple("List", vec!["List", "Pair"], 0, EOF),
-                       Item::new_simple("List", vec!["List", "Pair"], 0, "("),
-                       Item::new_simple("List", vec!["Pair"], 0, EOF),
-                       Item::new_simple("List", vec!["Pair"], 0, "("),
+        let g = paretheses_grammar().with_fake_goal();
+        let cc0 = vec![Item::from_str(FAKE_GOAL, vec!["List"], 0, EOF, &g),
+                       Item::from_str("List", vec!["List", "Pair"], 0, EOF, &g),
+                       Item::from_str("List", vec!["List", "Pair"], 0, "(", &g),
+                       Item::from_str("List", vec!["Pair"], 0, EOF, &g),
+                       Item::from_str("List", vec!["Pair"], 0, "(", &g),
 
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, EOF),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, "("),
-                       Item::new_simple("Pair", vec!["(", ")"], 0, EOF),
-                       Item::new_simple("Pair", vec!["(", ")"], 0, "(")]
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 0, EOF, &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 0, "(", &g),
+                       Item::from_str("Pair", vec!["(", ")"], 0, EOF, &g),
+                       Item::from_str("Pair", vec!["(", ")"], 0, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc1 = vec![Item::new_simple(FAKE_GOAL, vec!["List"], 1, EOF),
+        let cc1 = vec![Item::from_str(FAKE_GOAL, vec!["List"], 1, EOF, &g),
 
-                       Item::new_simple("List", vec!["List", "Pair"], 1, EOF),
-                       Item::new_simple("List", vec!["List", "Pair"], 1, "("),
+                       Item::from_str("List", vec!["List", "Pair"], 1, EOF, &g),
+                       Item::from_str("List", vec!["List", "Pair"], 1, "(", &g),
 
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, EOF),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, "("),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 0, EOF, &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 0, "(", &g),
 
-                       Item::new_simple("Pair", vec!["(", ")"], 0, EOF),
-                       Item::new_simple("Pair", vec!["(", ")"], 0, "(")]
+                       Item::from_str("Pair", vec!["(", ")"], 0, EOF, &g),
+                       Item::from_str("Pair", vec!["(", ")"], 0, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc2 = vec![Item::new_simple("List", vec!["Pair"], 1, EOF),
-                       Item::new_simple("List", vec!["Pair"], 1, "(")]
+        let cc2 = vec![Item::from_str("List", vec!["Pair"], 1, EOF, &g),
+                       Item::from_str("List", vec!["Pair"], 1, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc3 = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, ")"),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, EOF),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, "("),
+        let cc3 = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 0, ")", &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 1, EOF, &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 1, "(", &g),
 
-                       Item::new_simple("Pair", vec!["(", ")"], 0, ")"),
-                       Item::new_simple("Pair", vec!["(", ")"], 1, EOF),
-                       Item::new_simple("Pair", vec!["(", ")"], 1, "(")]
+                       Item::from_str("Pair", vec!["(", ")"], 0, ")", &g),
+                       Item::from_str("Pair", vec!["(", ")"], 1, EOF, &g),
+                       Item::from_str("Pair", vec!["(", ")"], 1, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc4 = vec![Item::new_simple("List", vec!["List", "Pair"], 2, EOF),
-                       Item::new_simple("List", vec!["List", "Pair"], 2, "(")]
+        let cc4 = vec![Item::from_str("List", vec!["List", "Pair"], 2, EOF, &g),
+                       Item::from_str("List", vec!["List", "Pair"], 2, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc5 = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 2, EOF),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 2, "(")]
+        let cc5 = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 2, EOF, &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 2, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc6 = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 0, ")"),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 1, ")"),
-                       Item::new_simple("Pair", vec!["(", ")"], 0, ")"),
-                       Item::new_simple("Pair", vec!["(", ")"], 1, ")")]
+        let cc6 = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 0, ")", &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 1, ")", &g),
+                       Item::from_str("Pair", vec!["(", ")"], 0, ")", &g),
+                       Item::from_str("Pair", vec!["(", ")"], 1, ")", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc7 = vec![Item::new_simple("Pair", vec!["(", ")"], 2, EOF),
-                       Item::new_simple("Pair", vec!["(", ")"], 2, "(")]
+        let cc7 = vec![Item::from_str("Pair", vec!["(", ")"], 2, EOF, &g),
+                       Item::from_str("Pair", vec!["(", ")"], 2, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc8 = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 3, EOF),
-                       Item::new_simple("Pair", vec!["(", "Pair", ")"], 3, "(")]
+        let cc8 = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 3, EOF, &g),
+                       Item::from_str("Pair", vec!["(", "Pair", ")"], 3, "(", &g)]
                 .iter()
                 .cloned()
                 .collect();
 
-        let cc9 = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 2, ")")]
+        let cc9 = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 2, ")", &g)]
             .iter()
             .cloned()
             .collect();
 
-        let cc10 = vec![Item::new_simple("Pair", vec!["(", ")"], 2, ")")]
+        let cc10 = vec![Item::from_str("Pair", vec!["(", ")"], 2, ")", &g)]
             .iter()
             .cloned()
             .collect();
 
-        let cc11 = vec![Item::new_simple("Pair", vec!["(", "Pair", ")"], 3, ")")]
+        let cc11 = vec![Item::from_str("Pair", vec!["(", "Pair", ")"], 3, ")", &g)]
             .iter()
             .cloned()
             .collect();

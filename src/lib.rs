@@ -1,9 +1,11 @@
 
 mod grammar;
+mod symbol;
 mod parser;
 mod item;
 
 pub use grammar::*;
+pub use symbol::*;
 pub use parser::*;
 pub use item::*;
 
