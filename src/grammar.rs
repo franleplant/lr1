@@ -145,7 +145,8 @@ impl Grammar {
                     .collect();
 
                 let mut i = 0;
-                while first_map.get(&prod.to[i]).unwrap().contains(LAMBDA) && i < prod.to.len() - 1 {
+                while first_map.get(&prod.to[i]).unwrap().contains(LAMBDA) &&
+                      i < prod.to.len() - 1 {
                     let next: BTreeSet<String> = first_map
                         .get(&prod.to[i + 1])
                         .unwrap()
@@ -156,7 +157,11 @@ impl Grammar {
                     i += 1;
                 }
 
-                if i == prod.to.len() - 1 && first_map.get(&prod.to[prod.to.len() - 1]).unwrap().contains(LAMBDA) {
+                if i == prod.to.len() - 1 &&
+                   first_map
+                       .get(&prod.to[prod.to.len() - 1])
+                       .unwrap()
+                       .contains(LAMBDA) {
                     rhs = rhs.union(&lambda_set).cloned().collect();
                 }
 

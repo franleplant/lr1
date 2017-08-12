@@ -56,7 +56,8 @@ impl Item {
     }
 
     pub fn is_complete(&self) -> bool {
-        assert!(self.stacktop <= self.prod.to.len(), "Stacktop out of bounds");
+        assert!(self.stacktop <= self.prod.to.len(),
+                "Stacktop out of bounds");
         if self.stacktop == self.prod.to.len() {
             true
         } else {
@@ -107,7 +108,8 @@ impl fmt::Display for Item {
         let to_str: String = if self.stacktop() == None {
             format!("{} •", self.prod.to.join(" "))
         } else {
-            self.prod.to
+            self.prod
+                .to
                 .iter()
                 .enumerate()
                 .map(|(i, s)| if i == self.stacktop {
