@@ -13,7 +13,7 @@ use super::{Grammar, Production, EOF, Item};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
     Accept,
-    Reduce(Production),
+    Reduce(Rc<Production>),
     Shift(Rc<BTreeSet<Item>>),
 }
 
@@ -87,7 +87,7 @@ impl Parser {
                     }
 
                     for b in first.unwrap() {
-                        let item = Item::from_production(prod, b.clone());
+                        let item = Item::from_production(prod.clone(), b.clone());
                         new_items.insert(item);
                     }
                 }
@@ -119,7 +119,7 @@ impl Parser {
 
     pub fn build_cc(&mut self) {
         let cc0 = {
-            let item = Item::from_production(&self.grammar.productions[0], EOF.to_string());
+            let item = Item::from_production(self.grammar.productions[0].clone(), EOF.to_string());
             let mut set = BTreeSet::new();
             set.insert(item);
             self.closure(&set)
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn closure_and_goto_test() {
         let parser = example_parser();
-        let first_prod = &parser.grammar.productions[0];
+        let first_prod = parser.grammar.productions[0].clone();
         let item = Item::from_production(first_prod, EOF.to_string());
         let items: BTreeSet<Item> = vec![item].iter().cloned().collect();
         let cc0 = parser.closure(&items);

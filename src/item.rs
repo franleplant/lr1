@@ -2,12 +2,14 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::fmt;
 
+//TODO reduce use of clone for non Rc things
+//fix to_prod method
+//try to return slices from methods that return array of symbols
 use super::{FAKE_GOAL, Production};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Item {
-    pub from: String,
-    pub to: Vec<String>,
+    pub prod: Rc<Production>,
     pub lookahead: String,
     pub stacktop: usize,
 }
@@ -17,28 +19,25 @@ impl Item {
         where T: Into<String> + Clone
     {
         let to = to.into_iter().map(|s| s.into()).collect();
-        Item::new(from.into(), to, stacktop, lookahead.into())
+        let prod = Production::new(from.into(), to);
+        Item::new(Rc::new(prod), stacktop, lookahead.into())
     }
 
-    pub fn new(from: String, to: Vec<String>, stacktop: usize, lookahead: String) -> Item {
+    pub fn new(prod: Rc<Production>, stacktop: usize, lookahead: String) -> Item {
         Item {
-            from: from,
-            to: to,
+            prod: prod,
             stacktop: stacktop,
             lookahead: lookahead,
         }
     }
 
-    pub fn from_production(prod: &Production, lookahead: String) -> Item {
-        let &Production { ref from, ref to } = prod;
-        Item::new(from.clone(), to.clone(), 0, lookahead)
+    pub fn from_production(prod: Rc<Production>, lookahead: String) -> Item {
+        Item::new(prod, 0, lookahead)
     }
 
-    pub fn to_prod(&self) -> Production {
-        Production {
-            from: self.from.clone(),
-            to: self.to.clone(),
-        }
+    //TODO rename, probably not needed anymore
+    pub fn to_prod(&self) -> Rc<Production> {
+        self.prod.clone()
     }
 
     pub fn set_to_string(items: &BTreeSet<Item>) -> String {
@@ -57,8 +56,8 @@ impl Item {
     }
 
     pub fn is_complete(&self) -> bool {
-        assert!(self.stacktop <= self.to.len(), "Stacktop out of bounds");
-        if self.stacktop == self.to.len() {
+        assert!(self.stacktop <= self.prod.to.len(), "Stacktop out of bounds");
+        if self.stacktop == self.prod.to.len() {
             true
         } else {
             false
@@ -66,15 +65,15 @@ impl Item {
     }
 
     pub fn is_terminator(&self) -> bool {
-        self.from.as_str() == FAKE_GOAL && self.stacktop == 1 && self.is_complete()
+        self.prod.from.as_str() == FAKE_GOAL && self.stacktop == 1 && self.is_complete()
     }
 
     pub fn stacktop(&self) -> Option<String> {
-        if self.stacktop == self.to.len() {
+        if self.stacktop == self.prod.to.len() {
             // Item complete
             return None;
-        } else if self.stacktop < self.to.len() {
-            return self.to.get(self.stacktop).map(|s| s.clone());
+        } else if self.stacktop < self.prod.to.len() {
+            return self.prod.to.get(self.stacktop).map(|s| s.clone());
         } else {
             panic!("Stacktop out of bounds")
         }
@@ -82,7 +81,7 @@ impl Item {
 
     //TODO return a slice
     pub fn after_stacktop(&self) -> Vec<String> {
-        self.to[self.stacktop + 1..].to_vec()
+        self.prod.to[self.stacktop + 1..].to_vec()
     }
 
     pub fn after_stacktop_and_lookahead(&self) -> Vec<String> {
@@ -106,9 +105,9 @@ impl Item {
 impl fmt::Display for Item {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let to_str: String = if self.stacktop() == None {
-            format!("{} •", self.to.join(" "))
+            format!("{} •", self.prod.to.join(" "))
         } else {
-            self.to
+            self.prod.to
                 .iter()
                 .enumerate()
                 .map(|(i, s)| if i == self.stacktop {
@@ -120,6 +119,6 @@ impl fmt::Display for Item {
                 .join(" ")
         };
 
-        write!(f, "[{} -> {}, {}]", self.from, to_str, self.lookahead)
+        write!(f, "[{} -> {}, {}]", self.prod.from, to_str, self.lookahead)
     }
 }

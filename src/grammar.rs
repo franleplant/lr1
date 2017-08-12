@@ -1,13 +1,12 @@
 use std::collections::{HashMap, BTreeSet};
+use std::rc::Rc;
 use std::fmt;
 
 //TODO figure out a way of encoding being a terminal or not in the symbol itself
 //perhaps by an enum, and by clasifying that when creating the grammar
-//
-//TODO let the Production be an Rc and let Items have a production, so it's less copying
 use super::{LAMBDA, EOF};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Production {
     pub from: String,
     pub to: Vec<String>,
@@ -35,7 +34,7 @@ impl fmt::Display for Production {
 #[derive(Debug)]
 pub struct Grammar {
     pub goal: String,
-    pub productions: Vec<Production>,
+    pub productions: Vec<Rc<Production>>,
     pub non_terminals: BTreeSet<String>,
     pub terminals: BTreeSet<String>,
     prod_map: HashMap<String, Vec<usize>>,
@@ -43,27 +42,27 @@ pub struct Grammar {
 }
 
 impl Grammar {
-    pub fn new_simple<T: Into<String> + Clone>(goal: T,
-                                               non_terminals: Vec<T>,
-                                               prods: Vec<(T, Vec<T>)>)
-                                               -> Grammar {
+    pub fn new_simple<T>(goal: T, non_terminals: Vec<T>, prods: Vec<(T, Vec<T>)>) -> Grammar
+        where T: Into<String> + Clone
+    {
         let non_terminals = non_terminals.iter().cloned().map(|s| s.into()).collect();
         let prods = prods
             .iter()
             .cloned()
             .map(|(from, to)| {
                      let to = to.iter().cloned().map(|s| s.into()).collect();
-                     Production::new(from.into(), to)
+                     Rc::new(Production::new(from.into(), to))
                  })
             .collect();
 
         Grammar::new(goal.into(), non_terminals, prods)
     }
 
-    pub fn new(goal: String, non_terminals: Vec<String>, prods: Vec<Production>) -> Grammar {
+    //TODO let prod map be a map to Rc<Prod>
+    pub fn new(goal: String, non_terminals: Vec<String>, prods: Vec<Rc<Production>>) -> Grammar {
         let mut prod_map = HashMap::new();
-        for (i, &Production { ref from, .. }) in prods.iter().enumerate() {
-            prod_map.entry(from.clone()).or_insert(vec![]).push(i);
+        for (i, ref prod) in prods.iter().enumerate() {
+            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(i);
         }
 
         let mut non_terminals: BTreeSet<String> = non_terminals.iter().cloned().collect();
@@ -84,7 +83,7 @@ impl Grammar {
         grammar
     }
 
-    pub fn get_prods(&self, from: &String) -> Option<Vec<&Production>> {
+    pub fn get_prods(&self, from: &String) -> Option<Vec<&Rc<Production>>> {
         if self.is_terminal(from) {
             return None;
         }
@@ -105,10 +104,9 @@ impl Grammar {
     fn calc_terminals(&self) -> BTreeSet<String> {
         self.productions
             .iter()
-            .cloned()
-            .flat_map(|Production { from, to }| {
-                          let mut symbols = to;
-                          symbols.push(from);
+            .flat_map(|prod| {
+                          let mut symbols = prod.to.clone();
+                          symbols.push(prod.from.clone());
                           symbols
                       })
             .filter(|symbol| !self.non_terminals.contains(symbol))
@@ -137,19 +135,19 @@ impl Grammar {
         let mut first_map_snapshot = HashMap::new();
         while first_map != first_map_snapshot {
             first_map_snapshot = first_map.clone();
-            for &Production { ref from, ref to } in &self.productions {
+            for prod in &self.productions {
                 //TODO try to make it more rusty
                 let mut rhs: BTreeSet<String> = first_map
-                    .get(&to[0])
+                    .get(&prod.to[0])
                     .unwrap()
                     .difference(&lambda_set)
                     .cloned()
                     .collect();
 
                 let mut i = 0;
-                while first_map.get(&to[i]).unwrap().contains(LAMBDA) && i < to.len() - 1 {
+                while first_map.get(&prod.to[i]).unwrap().contains(LAMBDA) && i < prod.to.len() - 1 {
                     let next: BTreeSet<String> = first_map
-                        .get(&to[i + 1])
+                        .get(&prod.to[i + 1])
                         .unwrap()
                         .difference(&lambda_set)
                         .cloned()
@@ -158,11 +156,11 @@ impl Grammar {
                     i += 1;
                 }
 
-                if i == to.len() - 1 && first_map.get(&to[to.len() - 1]).unwrap().contains(LAMBDA) {
+                if i == prod.to.len() - 1 && first_map.get(&prod.to[prod.to.len() - 1]).unwrap().contains(LAMBDA) {
                     rhs = rhs.union(&lambda_set).cloned().collect();
                 }
 
-                if let Some(first) = first_map.get_mut(from) {
+                if let Some(first) = first_map.get_mut(&prod.from) {
                     *first = first.union(&rhs).cloned().collect();
                 }
             }
@@ -209,7 +207,7 @@ impl Grammar {
         };
 
         let fake_prod = Production::new(fake_goal.clone(), vec![self.goal.clone()]);
-        let prods = [vec![fake_prod], self.productions.clone()].concat();
+        let prods = [vec![Rc::new(fake_prod)], self.productions.clone()].concat();
 
         Grammar::new(fake_goal, non_terminals, prods)
     }
