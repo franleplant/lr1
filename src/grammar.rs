@@ -116,55 +116,41 @@ impl Grammar {
     }
 
     fn calc_first(&self) -> HashMap<String, BTreeSet<String>> {
-        let mut first_map: HashMap<String, BTreeSet<String>> = HashMap::new();
 
-        let specials: BTreeSet<String> = vec![EOF.to_string(), LAMBDA.to_string()]
-            .iter()
-            .cloned()
+        let mut first_map: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut first_map_snapshot = HashMap::new();
+
+        let lambda_set = vec![LAMBDA.to_string()].into_iter().collect();
+        let specials = vec![EOF.to_string(), LAMBDA.to_string()]
+            .into_iter()
             .collect();
 
         for t in self.terminals.union(&specials) {
-            first_map.insert(t.clone(), vec![t.clone()].iter().cloned().collect());
+            first_map.insert(t.clone(), vec![t.clone()].into_iter().collect());
         }
 
         for nt in &self.non_terminals {
-            first_map.insert(nt.clone(), vec![].iter().cloned().collect());
+            first_map.insert(nt.clone(), vec![].into_iter().collect());
         }
 
-        let lambda_set: BTreeSet<String> = vec![LAMBDA.to_string()].iter().cloned().collect();
-
-        let mut first_map_snapshot = HashMap::new();
         while first_map != first_map_snapshot {
             first_map_snapshot = first_map.clone();
             for prod in &self.productions {
-                //TODO try to make it more rusty
-                let mut rhs: BTreeSet<String> = first_map
-                    .get(&prod.to[0])
-                    .unwrap()
-                    .difference(&lambda_set)
-                    .cloned()
-                    .collect();
 
-                let mut i = 0;
-                while first_map.get(&prod.to[i]).unwrap().contains(LAMBDA) &&
-                      i < prod.to.len() - 1 {
-                    let next: BTreeSet<String> = first_map
-                        .get(&prod.to[i + 1])
-                        .unwrap()
-                        .difference(&lambda_set)
-                        .cloned()
-                        .collect();
-                    rhs = rhs.union(&next).cloned().collect();
-                    i += 1;
-                }
+                let rhs = prod.to
+                    .iter()
+                    .enumerate()
+                    .take_while(|&(i, _)| i == 0 || first_map.get(&prod.to[i - 1]).unwrap().contains(LAMBDA))
+                    .fold(BTreeSet::new(), |acc, (i, symbol)| {
+                        let first_i = first_map.get(symbol).unwrap();
+                        let next = if i == prod.to.len() - 1 {
+                            first_i.iter().cloned().collect()
+                        } else {
+                            first_i.difference(&lambda_set).cloned().collect()
+                        };
 
-                if i == prod.to.len() - 1 &&
-                   first_map
-                       .get(&prod.to[prod.to.len() - 1])
-                       .unwrap()
-                       .contains(LAMBDA) {
-                    rhs = rhs.union(&lambda_set).cloned().collect();
-                }
+                        acc.union(&next).cloned().collect()
+                    });
 
                 if let Some(first) = first_map.get_mut(&prod.from) {
                     *first = first.union(&rhs).cloned().collect();
@@ -276,15 +262,19 @@ mod tests {
                          ("Factor", vec!["(", "name", "num"])];
 
         for &(ref nt, ref first) in &cases {
-            assert_eq!(g.first_map.get(&nt.to_string()).unwrap(),
-                       &first
+            let actual = g.first_map.get(&nt.to_string()).unwrap();
+            let expected = first
                             .iter()
                             .cloned()
                             .map(|s| s.to_string())
-                            .collect::<BTreeSet<String>>(),
-                       "Case nt {:?}, first {:?}",
+                            .collect::<BTreeSet<String>>();
+
+            assert_eq!(actual, &expected,
+                       "\nCase nt {:?}, first {:?}\nActual {:?}\nExpected {:?}",
                        nt,
-                       first);
+                       first,
+                       actual,
+                       expected);
         }
 
         assert_eq!(g.first_of(&vec!["Expr'".to_string(), "x".to_string()])
