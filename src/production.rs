@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::{Symbol};
+use super::Symbol;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Production {

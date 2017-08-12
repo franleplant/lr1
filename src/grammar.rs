@@ -13,29 +13,30 @@ pub struct Grammar {
 }
 
 impl Grammar {
-    pub fn new_simple<T>(goal: T, non_terminals: Vec<T>, prods: Vec<(T, Vec<T>)>) -> Grammar
+    pub fn from_str<T>(goal: T, non_terminals: Vec<T>, prods: Vec<(T, Vec<T>)>) -> Grammar
         where T: Into<String> + Clone
     {
-        let non_terminals: BTreeSet<String> = non_terminals.iter().cloned().map(|s| s.into()).collect();
+        let non_terminals: BTreeSet<String> =
+            non_terminals.iter().cloned().map(|s| s.into()).collect();
 
         let prods = prods
             .into_iter()
             .map(|(from, to)| {
-                    let from: String = from.into();
-                    assert!(non_terminals.contains(&from), "Unexpected terminal in prod.from");
-                    let from = Symbol::NT(from);
-                    let to = to.into_iter().map(|s| s.into())
-                        .map(|s| {
-                            if non_terminals.contains(&s) {
-                                Symbol::NT(s)
-                            } else {
-                                Symbol::T(s)
-                            }
-                        })
-                        .collect();
+                let from: String = from.into();
+                assert!(non_terminals.contains(&from),
+                        "Unexpected terminal in prod.from");
+                let from = Symbol::NT(from);
+                let to = to.into_iter()
+                    .map(|s| s.into())
+                    .map(|s| if non_terminals.contains(&s) {
+                             Symbol::NT(s)
+                         } else {
+                             Symbol::T(s)
+                         })
+                    .collect();
 
-                     Rc::new(Production::new(from, to))
-                 })
+                Rc::new(Production::new(from, to))
+            })
             .collect();
 
 
@@ -57,8 +58,12 @@ impl Grammar {
         };
 
         for prod in &prods {
-            assert!(prod.from.is_non_terminal(), "Unexpected terminal in prod.from");
-            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(prod.clone());
+            assert!(prod.from.is_non_terminal(),
+                    "Unexpected terminal in prod.from");
+            prod_map
+                .entry(prod.from.clone())
+                .or_insert(vec![])
+                .push(prod.clone());
             symbols.insert(prod.from.clone());
             for s in &prod.to {
                 symbols.insert(s.clone());
@@ -86,14 +91,16 @@ impl Grammar {
     }
 
     pub fn terminals(&self) -> BTreeSet<Symbol> {
-        self.symbols.iter()
+        self.symbols
+            .iter()
             .filter(|s| s.is_terminal())
             .cloned()
             .collect()
     }
 
     pub fn non_terminals(&self) -> BTreeSet<Symbol> {
-        self.symbols.iter()
+        self.symbols
+            .iter()
             .filter(|s| s.is_non_terminal())
             .cloned()
             .collect()
@@ -104,9 +111,7 @@ impl Grammar {
         let mut first_map_snapshot = HashMap::new();
 
         let lambda_set = vec![Symbol::lambda()].into_iter().collect();
-        let specials = vec![Symbol::eof(), Symbol::lambda()]
-            .into_iter()
-            .collect();
+        let specials = vec![Symbol::eof(), Symbol::lambda()].into_iter().collect();
 
         for t in self.terminals().union(&specials) {
             first_map.insert(t.clone(), vec![t.clone()].into_iter().collect());
@@ -125,7 +130,10 @@ impl Grammar {
                     .enumerate()
                     .take_while(|&(i, _)| {
                                     i == 0 ||
-                                    first_map.get(&prod.to[i - 1]).unwrap().contains(&Symbol::lambda())
+                                    first_map
+                                        .get(&prod.to[i - 1])
+                                        .unwrap()
+                                        .contains(&Symbol::lambda())
                                 })
                     .fold(BTreeSet::new(), |acc, (i, symbol)| {
                         let first_i = first_map.get(symbol).expect("Wrong symbol");
@@ -158,7 +166,10 @@ impl Grammar {
             .enumerate()
             .take_while(|&(i, _)| {
                             i == 0 ||
-                            self.first_map.get(&symbols[i - 1]).unwrap().contains(&Symbol::lambda())
+                            self.first_map
+                                .get(&symbols[i - 1])
+                                .unwrap()
+                                .contains(&Symbol::lambda())
                         })
             .fold(BTreeSet::new(), |acc, (i, symbol)| {
                 let first_i = self.first_map.get(symbol).expect("Wrong symbol");
@@ -186,7 +197,7 @@ impl Grammar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{LAMBDA};
+    use super::super::LAMBDA;
     fn example_grammar() -> Grammar {
         let non_terminals = vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"];
 
@@ -208,7 +219,7 @@ mod tests {
                          ("Factor", vec!["num"]),
                          ("Factor", vec!["name"])];
 
-        Grammar::new_simple("Goal", non_terminals, prods)
+        Grammar::from_str("Goal", non_terminals, prods)
     }
 
     #[test]
@@ -238,9 +249,7 @@ mod tests {
 
         for t in &g.terminals() {
             assert_eq!(g.first_map.get(t).unwrap(),
-                       &vec![t.clone()]
-                            .into_iter()
-                            .collect());
+                       &vec![t.clone()].into_iter().collect());
         }
     }
 

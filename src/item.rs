@@ -12,25 +12,29 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn from_str<T>(from: T, to: Vec<T>, stacktop: usize, lookahead: T, grammar: &Grammar) -> Item
+    pub fn from_str<T>(from: T, to: Vec<T>, stacktop: usize, lookahead: T, g: &Grammar) -> Item
         where T: Into<String> + Clone
     {
-        let non_terminals: BTreeSet<String> = grammar.non_terminals().iter().map(|s| s.to_string()).cloned().collect();
+        let non_terminals: BTreeSet<String> = g.non_terminals()
+            .iter()
+            .map(|s| s.to_string())
+            .cloned()
+            .collect();
 
         let from: String = from.into();
-        assert!(non_terminals.contains(&from), "From needs to be a Non Terminal! got {} and NonTerminals {:?}", from, non_terminals);
+        assert!(non_terminals.contains(&from),
+                "From needs to be a Non Terminal! got {} and NonTerminals {:?}",
+                from,
+                non_terminals);
 
         let from = Symbol::NT(from);
-        let to = to
-            .into_iter()
+        let to = to.into_iter()
             .map(|s| s.into())
-            .map(|s| {
-                if non_terminals.contains(&s) {
-                    Symbol::NT(s)
-                } else {
-                    Symbol::T(s)
-                }
-            })
+            .map(|s| if non_terminals.contains(&s) {
+                     Symbol::NT(s)
+                 } else {
+                     Symbol::T(s)
+                 })
             .collect();
 
         let lookahead: String = lookahead.into();
@@ -120,12 +124,16 @@ impl Item {
 
 impl fmt::Display for Item {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let to: Vec<String> = self.prod.to.iter().map(|s| s.to_string()).cloned().collect();
+        let to: Vec<String> = self.prod
+            .to
+            .iter()
+            .map(|s| s.to_string())
+            .cloned()
+            .collect();
         let to_str: String = if self.stacktop() == None {
             format!("{} •", to.join(" "))
         } else {
-            to
-                .iter()
+            to.iter()
                 .enumerate()
                 .map(|(i, s)| if i == self.stacktop {
                          format!("• {}", s)

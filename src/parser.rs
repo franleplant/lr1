@@ -119,7 +119,8 @@ impl Parser {
 
     pub fn build_cc(&mut self) {
         let cc0 = {
-            let item = Item::from_production(self.grammar.productions[0].clone(), Symbol::new_t(EOF));
+            let item = Item::from_production(self.grammar.productions[0].clone(),
+                                             Symbol::new_t(EOF));
             let mut set = BTreeSet::new();
             set.insert(item);
             self.closure(&set)
@@ -271,7 +272,9 @@ impl Parser {
 
                     let state = self.get_stacktop_state()?;
                     let next = self.get_single_goto(&(state, prod.from.clone()))?;
-                    self.stack.borrow_mut().push(StackEl::Symbol(prod.from.clone()));
+                    self.stack
+                        .borrow_mut()
+                        .push(StackEl::Symbol(prod.from.clone()));
                     self.stack.borrow_mut().push(StackEl::State(next.clone()));
                 }
 
@@ -371,13 +374,23 @@ impl Parser {
         let mut rows: Vec<Vec<String>> = vec![];
 
         let mut first_row = vec!["".to_string(), EOF.to_string()];
-        first_row.append(&mut self.grammar.terminals().iter().map(|s| s.to_string()).cloned().collect());
+        first_row.append(&mut self.grammar
+                                  .terminals()
+                                  .iter()
+                                  .map(|s| s.to_string())
+                                  .cloned()
+                                  .collect());
 
         rows.push(first_row);
 
 
         let mut terminals = vec![EOF.to_string()];
-        terminals.append(&mut self.grammar.terminals().iter().map(|s| s.to_string()).cloned().collect());
+        terminals.append(&mut self.grammar
+                                  .terminals()
+                                  .iter()
+                                  .map(|s| s.to_string())
+                                  .cloned()
+                                  .collect());
 
         for (i, cc_i) in self.index_to_cc.iter().enumerate() {
             let mut row = vec![i.to_string()];
@@ -411,7 +424,12 @@ impl Parser {
         let mut rows: Vec<Vec<String>> = vec![];
 
         let mut first_row = vec!["".to_string()];
-        first_row.append(&mut self.grammar.non_terminals().iter().map(|s| s.to_string()).cloned().collect());
+        first_row.append(&mut self.grammar
+                                  .non_terminals()
+                                  .iter()
+                                  .map(|s| s.to_string())
+                                  .cloned()
+                                  .collect());
 
         rows.push(first_row);
 
@@ -506,8 +524,12 @@ mod tests {
         let parser = example_parser();
         let cc_vec = paretheses_cc();
 
-        let col = vec![NT("Goal".to_string()), NT("List".to_string()), NT("Pair".to_string()),
-        T("(".to_string()), T(")".to_string()), T(EOF.to_string())];
+        let col = vec![NT("Goal".to_string()),
+                       NT("List".to_string()),
+                       NT("Pair".to_string()),
+                       T("(".to_string()),
+                       T(")".to_string()),
+                       T(EOF.to_string())];
 
         let expected = vec![[None,
                              Some(cc_vec[1].clone()),
@@ -603,7 +625,9 @@ mod tests {
 
         for (i, row) in expected.iter().enumerate() {
             for (j, e) in row.iter().enumerate() {
-                let a = parser.action.get(&(cc_vec[i].clone(), Symbol::T(col[j].to_string())));
+                let a = parser
+                    .action
+                    .get(&(cc_vec[i].clone(), Symbol::T(col[j].to_string())));
 
                 let e = e.clone()
                     .map(|a| {
@@ -699,7 +723,7 @@ mod tests {
                          ("Pair", vec!["(", "Pair", ")"]),
                          ("Pair", vec!["(", ")"])];
 
-        let g = Grammar::new_simple("List", non_terminals, prods);
+        let g = Grammar::from_str("List", non_terminals, prods);
         g
     }
 
