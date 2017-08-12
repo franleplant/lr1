@@ -140,7 +140,10 @@ impl Grammar {
                 let rhs = prod.to
                     .iter()
                     .enumerate()
-                    .take_while(|&(i, _)| i == 0 || first_map.get(&prod.to[i - 1]).unwrap().contains(LAMBDA))
+                    .take_while(|&(i, _)| {
+                                    i == 0 ||
+                                    first_map.get(&prod.to[i - 1]).unwrap().contains(LAMBDA)
+                                })
                     .fold(BTreeSet::new(), |acc, (i, symbol)| {
                         let first_i = first_map.get(symbol).unwrap();
                         let next = if i == prod.to.len() - 1 {
@@ -264,12 +267,13 @@ mod tests {
         for &(ref nt, ref first) in &cases {
             let actual = g.first_map.get(&nt.to_string()).unwrap();
             let expected = first
-                            .iter()
-                            .cloned()
-                            .map(|s| s.to_string())
-                            .collect::<BTreeSet<String>>();
+                .iter()
+                .cloned()
+                .map(|s| s.to_string())
+                .collect::<BTreeSet<String>>();
 
-            assert_eq!(actual, &expected,
+            assert_eq!(actual,
+                       &expected,
                        "\nCase nt {:?}, first {:?}\nActual {:?}\nExpected {:?}",
                        nt,
                        first,
