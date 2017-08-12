@@ -1,13 +1,15 @@
 
-mod grammar;
 mod symbol;
-mod parser;
+mod production;
+mod grammar;
 mod item;
+mod parser;
 
-pub use grammar::*;
 pub use symbol::*;
-pub use parser::*;
+pub use production::*;
+pub use grammar::*;
 pub use item::*;
+pub use parser::*;
 
 pub const LAMBDA: &'static str = "LAMBDA";
 pub const EOF: &'static str = "EOF";

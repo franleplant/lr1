@@ -1,5 +1,5 @@
 use std::fmt;
-use super::{EOF};
+use super::{EOF, LAMBDA};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Symbol {
@@ -18,6 +18,10 @@ impl Symbol {
 
     pub fn eof() -> Symbol {
         Symbol::T(EOF.to_string())
+    }
+
+    pub fn lambda() -> Symbol {
+        Symbol::T(LAMBDA.to_string())
     }
 
     pub fn is_terminal(&self) -> bool {

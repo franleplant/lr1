@@ -1,44 +1,15 @@
 use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
-use std::fmt;
 
-//TODO grammar.prod_map should go to Rc<Prod>
-//TODO store the terminals into a prop and maintain the same api but with references
-use super::{FAKE_GOAL, LAMBDA, EOF, Symbol};
-
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Production {
-    pub from: Symbol,
-    pub to: Vec<Symbol>,
-}
-
-impl Production {
-    pub fn new(from: Symbol, to: Vec<Symbol>) -> Production {
-        Production { from: from, to: to }
-    }
-}
-
-impl fmt::Display for Production {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "{} -> {}",
-               self.from,
-               self.to
-                   .iter()
-                   .map(|s| format!("{:?}", s))
-                   .collect::<Vec<String>>()
-                   .join(" "))
-    }
-}
+use super::{FAKE_GOAL, Symbol, Production};
 
 #[derive(Debug)]
 pub struct Grammar {
     pub goal: Symbol,
     pub productions: Vec<Rc<Production>>,
-    prod_map: HashMap<Symbol, Vec<usize>>,
+    prod_map: HashMap<Symbol, Vec<Rc<Production>>>,
     first_map: HashMap<Symbol, BTreeSet<Symbol>>,
-    symbols: Vec<Symbol>,
+    symbols: BTreeSet<Symbol>,
 }
 
 impl Grammar {
@@ -79,14 +50,18 @@ impl Grammar {
         assert!(goal.is_non_terminal(), "Unexpected terminal goal");
 
         let mut prod_map = HashMap::new();
-        let mut symbols = vec![goal.clone()];
-        for (i, ref prod) in prods.iter().enumerate() {
+        let mut symbols = {
+            let mut set = BTreeSet::new();
+            set.insert(goal.clone());
+            set
+        };
+
+        for prod in &prods {
             assert!(prod.from.is_non_terminal(), "Unexpected terminal in prod.from");
-            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(i);
-            symbols.push(prod.from.clone());
-            //TODO can we improve this?
+            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(prod.clone());
+            symbols.insert(prod.from.clone());
             for s in &prod.to {
-                symbols.push(s.clone());
+                symbols.insert(s.clone());
             }
         }
 
@@ -99,36 +74,37 @@ impl Grammar {
         };
 
         grammar.first_map = grammar.calc_first();
-
         grammar
     }
 
-    pub fn get_prods(&self, from: &Symbol) -> Option<Vec<&Rc<Production>>> {
+    pub fn get_prods(&self, from: &Symbol) -> Option<&Vec<Rc<Production>>> {
         if from.is_terminal() {
             return None;
         }
 
-        self.prod_map
-            .get(from)
-            .map(|prod_indices| {
-                     prod_indices
-                         .iter()
-                         .map(|prod_index| {
-                                  self.productions.get(*prod_index).expect("Bad prod index!")
-                              })
-                         .collect()
-                 })
+        self.prod_map.get(from)
+    }
 
+    pub fn terminals(&self) -> BTreeSet<Symbol> {
+        self.symbols.iter()
+            .filter(|s| s.is_terminal())
+            .cloned()
+            .collect()
+    }
+
+    pub fn non_terminals(&self) -> BTreeSet<Symbol> {
+        self.symbols.iter()
+            .filter(|s| s.is_non_terminal())
+            .cloned()
+            .collect()
     }
 
     fn calc_first(&self) -> HashMap<Symbol, BTreeSet<Symbol>> {
-        use Symbol::*;
-
         let mut first_map: HashMap<Symbol, BTreeSet<Symbol>> = HashMap::new();
         let mut first_map_snapshot = HashMap::new();
 
-        let lambda_set = vec![T(LAMBDA.to_string())].into_iter().collect();
-        let specials = vec![T(EOF.to_string()), T(LAMBDA.to_string())]
+        let lambda_set = vec![Symbol::lambda()].into_iter().collect();
+        let specials = vec![Symbol::eof(), Symbol::lambda()]
             .into_iter()
             .collect();
 
@@ -149,10 +125,10 @@ impl Grammar {
                     .enumerate()
                     .take_while(|&(i, _)| {
                                     i == 0 ||
-                                    first_map.get(&prod.to[i - 1]).unwrap().contains(&T(LAMBDA.to_string()))
+                                    first_map.get(&prod.to[i - 1]).unwrap().contains(&Symbol::lambda())
                                 })
                     .fold(BTreeSet::new(), |acc, (i, symbol)| {
-                        let first_i = first_map.get(symbol).unwrap();
+                        let first_i = first_map.get(symbol).expect("Wrong symbol");
                         let next = if i == prod.to.len() - 1 {
                             first_i.iter().cloned().collect()
                         } else {
@@ -171,37 +147,29 @@ impl Grammar {
         first_map
     }
 
-    pub fn terminals(&self) -> BTreeSet<Symbol> {
-        self.symbols.iter()
-            .filter(|s| s.is_terminal())
-            .cloned()
-            .collect()
-    }
 
-    pub fn non_terminals(&self) -> BTreeSet<Symbol> {
-        self.symbols.iter()
-            .filter(|s| s.is_non_terminal())
-            .cloned()
-            .collect()
-    }
-
+    // TODO (potentially) this is a copy paste logic of what happens inside the calc_first
+    // can we abstract that?
     pub fn first_of(&self, symbols: &Vec<Symbol>) -> Option<BTreeSet<Symbol>> {
-        let mut first = BTreeSet::new();
+        let lambda_set = vec![Symbol::lambda()].into_iter().collect();
 
-        let first_by_symbol = symbols
+        let first = symbols
             .iter()
-            .map(|symbol| self.first_map.get(symbol))
-            .map(|opt| {
-                     opt.expect(&*format!("Something went wrong when finding frist of {:?}",
-                                         symbols))
-                 });
+            .enumerate()
+            .take_while(|&(i, _)| {
+                            i == 0 ||
+                            self.first_map.get(&symbols[i - 1]).unwrap().contains(&Symbol::lambda())
+                        })
+            .fold(BTreeSet::new(), |acc, (i, symbol)| {
+                let first_i = self.first_map.get(symbol).expect("Wrong symbol");
+                let next = if i == symbols.len() - 1 {
+                    first_i.iter().cloned().collect()
+                } else {
+                    first_i.difference(&lambda_set).cloned().collect()
+                };
 
-        for symbol_first in first_by_symbol {
-            first = first.union(symbol_first).cloned().collect();
-            if !symbol_first.contains(&Symbol::T(LAMBDA.to_string())) {
-                return Some(first);
-            }
-        }
+                acc.union(&next).cloned().collect()
+            });
 
         if first.is_empty() { None } else { Some(first) }
     }
@@ -218,6 +186,7 @@ impl Grammar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::{LAMBDA};
     fn example_grammar() -> Grammar {
         let non_terminals = vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"];
 
@@ -311,10 +280,10 @@ mod tests {
         let g = example_grammar();
         assert_eq!(g.first_of(&vec![NT("Expr'".to_string()), T("x".to_string())])
                        .unwrap(),
-                   vec!["+", "-", LAMBDA, "x"]
+                   vec!["+", "-", "x"]
                        .into_iter()
                        .map(|s| s.to_string())
-                        .map(|s| T(s))
+                       .map(|s| T(s))
                        .collect::<BTreeSet<Symbol>>())
     }
 }
