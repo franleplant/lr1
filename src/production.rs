@@ -16,13 +16,15 @@ impl Production {
 
 impl fmt::Display for Production {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "{} -> {}",
-               self.from,
-               self.to
-                   .iter()
-                   .map(|s| format!("{:?}", s))
-                   .collect::<Vec<String>>()
-                   .join(" "))
+        write!(
+            f,
+            "{} -> {}",
+            self.from,
+            self.to
+                .iter()
+                .map(|s| format!("{:?}", s))
+                .collect::<Vec<String>>()
+                .join(" ")
+        )
     }
 }

@@ -14,7 +14,8 @@ pub struct Grammar {
 
 impl Grammar {
     pub fn from_str<T>(goal: T, non_terminals: Vec<T>, prods: Vec<(T, Vec<T>)>) -> Grammar
-        where T: Into<String> + Clone
+    where
+        T: Into<String> + Clone,
     {
         let non_terminals: BTreeSet<String> =
             non_terminals.iter().cloned().map(|s| s.into()).collect();
@@ -23,16 +24,18 @@ impl Grammar {
             .into_iter()
             .map(|(from, to)| {
                 let from: String = from.into();
-                assert!(non_terminals.contains(&from),
-                        "Unexpected terminal in prod.from");
+                assert!(
+                    non_terminals.contains(&from),
+                    "Unexpected terminal in prod.from"
+                );
                 let from = Symbol::NT(from);
                 let to = to.into_iter()
                     .map(|s| s.into())
                     .map(|s| if non_terminals.contains(&s) {
-                             Symbol::NT(s)
-                         } else {
-                             Symbol::T(s)
-                         })
+                        Symbol::NT(s)
+                    } else {
+                        Symbol::T(s)
+                    })
                     .collect();
 
                 Rc::new(Production::new(from, to))
@@ -58,12 +61,13 @@ impl Grammar {
         };
 
         for prod in &prods {
-            assert!(prod.from.is_non_terminal(),
-                    "Unexpected terminal in prod.from");
-            prod_map
-                .entry(prod.from.clone())
-                .or_insert(vec![])
-                .push(prod.clone());
+            assert!(
+                prod.from.is_non_terminal(),
+                "Unexpected terminal in prod.from"
+            );
+            prod_map.entry(prod.from.clone()).or_insert(vec![]).push(
+                prod.clone(),
+            );
             symbols.insert(prod.from.clone());
             for s in &prod.to {
                 symbols.insert(s.clone());
@@ -129,12 +133,11 @@ impl Grammar {
                     .iter()
                     .enumerate()
                     .take_while(|&(i, _)| {
-                                    i == 0 ||
-                                    first_map
-                                        .get(&prod.to[i - 1])
-                                        .unwrap()
-                                        .contains(&Symbol::lambda())
-                                })
+                        i == 0 ||
+                            first_map.get(&prod.to[i - 1]).unwrap().contains(
+                                &Symbol::lambda(),
+                            )
+                    })
                     .fold(BTreeSet::new(), |acc, (i, symbol)| {
                         let first_i = first_map.get(symbol).expect("Wrong symbol");
                         let next = if i == prod.to.len() - 1 {
@@ -165,12 +168,11 @@ impl Grammar {
             .iter()
             .enumerate()
             .take_while(|&(i, _)| {
-                            i == 0 ||
-                            self.first_map
-                                .get(&symbols[i - 1])
-                                .unwrap()
-                                .contains(&Symbol::lambda())
-                        })
+                i == 0 ||
+                    self.first_map.get(&symbols[i - 1]).unwrap().contains(
+                        &Symbol::lambda(),
+                    )
+            })
             .fold(BTreeSet::new(), |acc, (i, symbol)| {
                 let first_i = self.first_map.get(symbol).expect("Wrong symbol");
                 let next = if i == symbols.len() - 1 {
@@ -201,23 +203,25 @@ mod tests {
     fn example_grammar() -> Grammar {
         let non_terminals = vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"];
 
-        let prods = vec![("Goal", vec!["Expr"]),
+        let prods = vec![
+            ("Goal", vec!["Expr"]),
 
-                         ("Expr", vec!["Term", "Expr'"]),
+            ("Expr", vec!["Term", "Expr'"]),
 
-                         ("Expr'", vec!["+", "Term", "Expr'"]),
-                         ("Expr'", vec!["-", "Term", "Expr'"]),
-                         ("Expr'", vec![LAMBDA]),
+            ("Expr'", vec!["+", "Term", "Expr'"]),
+            ("Expr'", vec!["-", "Term", "Expr'"]),
+            ("Expr'", vec![LAMBDA]),
 
-                         ("Term", vec!["Factor", "Term'"]),
+            ("Term", vec!["Factor", "Term'"]),
 
-                         ("Term'", vec!["x", "Factor", "Term'"]),
-                         ("Term'", vec!["%", "Factor", "Term'"]),
-                         ("Term'", vec![LAMBDA]),
+            ("Term'", vec!["x", "Factor", "Term'"]),
+            ("Term'", vec!["%", "Factor", "Term'"]),
+            ("Term'", vec![LAMBDA]),
 
-                         ("Factor", vec!["(", "Expr", ")"]),
-                         ("Factor", vec!["num"]),
-                         ("Factor", vec!["name"])];
+            ("Factor", vec!["(", "Expr", ")"]),
+            ("Factor", vec!["num"]),
+            ("Factor", vec!["name"]),
+        ];
 
         Grammar::from_str("Goal", non_terminals, prods)
     }
@@ -227,19 +231,23 @@ mod tests {
         use Symbol::*;
         let g = example_grammar();
 
-        assert_eq!(g.terminals(),
-                   vec!["+", "-", "x", "%", LAMBDA, "(", ")", "num", "name"]
-                       .into_iter()
-                       .map(|s| s.to_string())
-                       .map(|s| T(s))
-                       .collect());
+        assert_eq!(
+            g.terminals(),
+            vec!["+", "-", "x", "%", LAMBDA, "(", ")", "num", "name"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .map(|s| T(s))
+                .collect()
+        );
 
-        assert_eq!(g.non_terminals(),
-                   vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"]
-                       .into_iter()
-                       .map(|s| s.to_string())
-                       .map(|s| NT(s))
-                       .collect());
+        assert_eq!(
+            g.non_terminals(),
+            vec!["Goal", "Expr", "Expr'", "Term", "Term'", "Factor"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .map(|s| NT(s))
+                .collect()
+        );
 
     }
 
@@ -248,8 +256,10 @@ mod tests {
         let g = example_grammar();
 
         for t in &g.terminals() {
-            assert_eq!(g.first_map.get(t).unwrap(),
-                       &vec![t.clone()].into_iter().collect());
+            assert_eq!(
+                g.first_map.get(t).unwrap(),
+                &vec![t.clone()].into_iter().collect()
+            );
         }
     }
 
@@ -258,12 +268,14 @@ mod tests {
         use Symbol::*;
         let g = example_grammar();
 
-        let cases = vec![("Goal", vec!["(", "name", "num"]),
-                         ("Expr", vec!["(", "name", "num"]),
-                         ("Expr'", vec!["+", "-", LAMBDA]),
-                         ("Term", vec!["(", "name", "num"]),
-                         ("Term'", vec!["x", "%", LAMBDA]),
-                         ("Factor", vec!["(", "name", "num"])];
+        let cases = vec![
+            ("Goal", vec!["(", "name", "num"]),
+            ("Expr", vec!["(", "name", "num"]),
+            ("Expr'", vec!["+", "-", LAMBDA]),
+            ("Term", vec!["(", "name", "num"]),
+            ("Term'", vec!["x", "%", LAMBDA]),
+            ("Factor", vec!["(", "name", "num"]),
+        ];
 
         for &(ref nt, ref first) in &cases {
             let actual = g.first_map.get(&NT(nt.to_string())).unwrap();
@@ -273,13 +285,15 @@ mod tests {
                 .map(|s| T(s))
                 .collect::<BTreeSet<Symbol>>();
 
-            assert_eq!(actual,
-                       &expected,
-                       "\nCase nt {:?}, first {:?}\nActual {:?}\nExpected {:?}",
-                       nt,
-                       first,
-                       actual,
-                       expected);
+            assert_eq!(
+                actual,
+                &expected,
+                "\nCase nt {:?}, first {:?}\nActual {:?}\nExpected {:?}",
+                nt,
+                first,
+                actual,
+                expected
+            );
         }
     }
 
@@ -287,12 +301,14 @@ mod tests {
     fn first_of_symbols() {
         use Symbol::*;
         let g = example_grammar();
-        assert_eq!(g.first_of(&vec![NT("Expr'".to_string()), T("x".to_string())])
-                       .unwrap(),
-                   vec!["+", "-", "x"]
-                       .into_iter()
-                       .map(|s| s.to_string())
-                       .map(|s| T(s))
-                       .collect::<BTreeSet<Symbol>>())
+        assert_eq!(
+            g.first_of(&vec![NT("Expr'".to_string()), T("x".to_string())])
+                .unwrap(),
+            vec!["+", "-", "x"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .map(|s| T(s))
+                .collect::<BTreeSet<Symbol>>()
+        )
     }
 }

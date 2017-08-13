@@ -13,7 +13,8 @@ pub struct Item {
 
 impl Item {
     pub fn from_str<T>(from: T, to: Vec<T>, stacktop: usize, lookahead: T, g: &Grammar) -> Item
-        where T: Into<String> + Clone
+    where
+        T: Into<String> + Clone,
     {
         let non_terminals: BTreeSet<String> = g.non_terminals()
             .iter()
@@ -22,19 +23,21 @@ impl Item {
             .collect();
 
         let from: String = from.into();
-        assert!(non_terminals.contains(&from),
-                "From needs to be a Non Terminal! got {} and NonTerminals {:?}",
-                from,
-                non_terminals);
+        assert!(
+            non_terminals.contains(&from),
+            "From needs to be a Non Terminal! got {} and NonTerminals {:?}",
+            from,
+            non_terminals
+        );
 
         let from = Symbol::NT(from);
         let to = to.into_iter()
             .map(|s| s.into())
             .map(|s| if non_terminals.contains(&s) {
-                     Symbol::NT(s)
-                 } else {
-                     Symbol::T(s)
-                 })
+                Symbol::NT(s)
+            } else {
+                Symbol::T(s)
+            })
             .collect();
 
         let lookahead: String = lookahead.into();
@@ -76,8 +79,10 @@ impl Item {
     }
 
     pub fn is_complete(&self) -> bool {
-        assert!(self.stacktop <= self.prod.to.len(),
-                "Stacktop out of bounds");
+        assert!(
+            self.stacktop <= self.prod.to.len(),
+            "Stacktop out of bounds"
+        );
         if self.stacktop == self.prod.to.len() {
             true
         } else {
@@ -113,8 +118,10 @@ impl Item {
     pub fn clone_with_next_stacktop(&self) -> Item {
         let mut item = self.clone();
         if item.is_complete() {
-            panic!("Attempting to push item's stacktop when the item is already complete {:?}",
-                   self);
+            panic!(
+                "Attempting to push item's stacktop when the item is already complete {:?}",
+                self
+            );
         }
 
         item.stacktop += 1;
@@ -136,10 +143,10 @@ impl fmt::Display for Item {
             to.iter()
                 .enumerate()
                 .map(|(i, s)| if i == self.stacktop {
-                         format!("• {}", s)
-                     } else {
-                         s.clone()
-                     })
+                    format!("• {}", s)
+                } else {
+                    s.clone()
+                })
                 .collect::<Vec<String>>()
                 .join(" ")
         };
