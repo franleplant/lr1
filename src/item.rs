@@ -112,7 +112,7 @@ impl Item {
 
     pub fn clone_with_next_stacktop(&self) -> Item {
         let mut item = self.clone();
-        if item.stacktop() == None {
+        if item.is_complete() {
             panic!("Attempting to push item's stacktop when the item is already complete {:?}",
                    self);
         }

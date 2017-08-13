@@ -3,13 +3,6 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use super::{Symbol, Grammar, Production, EOF, Item};
 
-//TODO
-//it'd be nice to have all the printing functions someother place,
-//since they are like 150 lines of code
-//
-//
-//Write a method that verifies that there are no conflicts in the action table
-//
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
     Accept,
@@ -117,10 +110,10 @@ impl Parser {
         }
     }
 
-    pub fn build_cc(&mut self) {
+    fn build_cc(&mut self) {
         let cc0 = {
             let item = Item::from_production(self.grammar.productions[0].clone(),
-                                             Symbol::new_t(EOF));
+                                             Symbol::eof());
             let mut set = BTreeSet::new();
             set.insert(item);
             self.closure(&set)
@@ -233,6 +226,12 @@ impl Parser {
                           &StackEl::State(ref s) => Ok(s.clone()),
                           _ => Err(format!("Attempting to read an invalid state from stack")),
                       })
+    }
+
+    pub fn is_lr1(&self) -> bool {
+        self.action
+            .iter()
+            .all(|(_, actions)| actions.len() <= 1)
     }
 
     pub fn parse<I>(&self, mut tokens: I) -> Result<(), String>
@@ -464,7 +463,6 @@ mod tests {
     use super::*;
     use super::super::{FAKE_GOAL, EOF};
 
-
     #[test]
     fn closure_and_goto_test() {
         let parser = example_parser();
@@ -648,9 +646,7 @@ mod tests {
     #[test]
     fn build_cc_test() {
         let parser = example_parser();
-
-        let expected_cc: BTreeSet<Rc<BTreeSet<Item>>> = paretheses_cc().iter().cloned().collect();
-
+        let expected_cc: BTreeSet<Rc<BTreeSet<Item>>> = paretheses_cc().into_iter().collect();
         let actual_cc = parser.cc.clone();
 
         assert_eq!(actual_cc.len(),
@@ -666,6 +662,8 @@ mod tests {
                        Item::set_to_string(actual_items),
                        Item::set_to_string(expected_items));
         }
+
+        assert!(parser.is_lr1());
     }
 
     #[test]
