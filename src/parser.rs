@@ -112,8 +112,7 @@ impl Parser {
 
     fn build_cc(&mut self) {
         let cc0 = {
-            let item = Item::from_production(self.grammar.productions[0].clone(),
-                                             Symbol::eof());
+            let item = Item::from_production(self.grammar.productions[0].clone(), Symbol::eof());
             let mut set = BTreeSet::new();
             set.insert(item);
             self.closure(&set)
@@ -229,9 +228,7 @@ impl Parser {
     }
 
     pub fn is_lr1(&self) -> bool {
-        self.action
-            .iter()
-            .all(|(_, actions)| actions.len() <= 1)
+        self.action.iter().all(|(_, actions)| actions.len() <= 1)
     }
 
     pub fn parse<I>(&self, mut tokens: I) -> Result<(), String>
