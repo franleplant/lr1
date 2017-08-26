@@ -1,4 +1,4 @@
-use super::{Symbol};
+use super::Symbol;
 use std::fmt;
 
 pub type NodeId = usize;
@@ -10,9 +10,7 @@ pub struct NodeData {
 
 impl From<Symbol> for NodeData {
     fn from(symbol: Symbol) -> Self {
-        NodeData {
-            symbol: symbol
-        }
+        NodeData { symbol: symbol }
     }
 }
 
@@ -52,7 +50,7 @@ impl Tree {
     pub fn new() -> Tree {
         Tree {
             nodes: vec![],
-            root: None
+            root: None,
         }
     }
 
@@ -69,11 +67,15 @@ impl Tree {
 
     pub fn append(&mut self, parent_id: NodeId, child_id: NodeId) {
         {
-            let child = self.nodes.get_mut(child_id).expect("Tree.append(): Unexpected Child Id");
+            let child = self.nodes.get_mut(child_id).expect(
+                "Tree.append(): Unexpected Child Id",
+            );
             child.parent = Some(parent_id);
         }
 
-        let parent = self.nodes.get_mut(parent_id).expect("Tree.append(): Unexpected Parent Id");
+        let parent = self.nodes.get_mut(parent_id).expect(
+            "Tree.append(): Unexpected Parent Id",
+        );
         parent.children.push(child_id);
     }
 
@@ -97,7 +99,7 @@ impl Tree {
 
     pub fn print(&self) {
         if self.root == None {
-            return
+            return;
         }
 
         self.preorder_walk(self.root.unwrap(), 0);

@@ -29,7 +29,7 @@ impl StackEl {
 
     pub fn unwrap_symbol(self) -> (Symbol, Option<NodeId>) {
         if let StackEl::Symbol(symbol) = self {
-            return symbol
+            return symbol;
         } else {
             panic!("Unexpected unwrap_symbol a non symbol StackEl")
         }
@@ -308,23 +308,26 @@ impl Parser {
                     let stack_len = self.stack.borrow().len();
 
                     if to_pop > stack_len {
-                        return Err(format!("Reduce Error: empty stack"))
+                        return Err(format!("Reduce Error: empty stack"));
                     }
 
                     let popped = self.stack.borrow_mut().split_off(stack_len - to_pop);
-                    popped.into_iter()
+                    popped
+                        .into_iter()
                         .filter(|el| el.is_symbol())
                         .map(|el| el.unwrap_symbol())
                         .map(|(_, child_id)| child_id)
-                        .map(|child_id| tree.append(new_root, child_id.expect("Unexpected EOF")))
+                        .map(|child_id| {
+                            tree.append(new_root, child_id.expect("Unexpected EOF"))
+                        })
                         .collect::<Vec<()>>();
 
 
                     let state = self.get_stacktop_state()?;
                     let next = self.get_single_goto(&(state, prod.from.clone()))?;
-                    self.stack.borrow_mut().push(
-                        StackEl::Symbol((prod.from.clone(), Some(new_root))),
-                    );
+                    self.stack.borrow_mut().push(StackEl::Symbol(
+                        (prod.from.clone(), Some(new_root)),
+                    ));
                     self.stack.borrow_mut().push(StackEl::State(next.clone()));
                 }
 
