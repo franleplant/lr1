@@ -1,10 +1,10 @@
 use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
 use std::cell::RefCell;
-use super::{Symbol, Grammar, Production, EOF, Item, NodeId, Tree};
+use super::{Symbol, Grammar, Production, EOF, Item, NodeId, Tree, Token};
 
 //TODO
-//Token trait or something similar
+//Print Tree should have connected children (see algortihms/bst)
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
@@ -264,7 +264,7 @@ impl Parser {
 
     pub fn parse<I>(&self, mut tokens: I) -> Result<Tree, String>
     where
-        I: Iterator<Item = (String, String)>,
+        I: Iterator<Item = Box<Token>>,
     {
         use Action::*;
 
@@ -281,21 +281,21 @@ impl Parser {
 
         let mut word = {
             let word = tokens.next();
-            if word == None {
+            if word.is_none() {
                 return Ok((tree));
             }
 
             word.unwrap()
         };
 
-        if word.0.as_str() == EOF {
+        if word.kind() == EOF {
             return Ok(tree);
         }
 
         loop {
             let state = self.get_stacktop_state()?;
             let action = self.get_single_action(
-                &(state.clone(), Symbol::new_t(&word.0)),
+                &(state.clone(), Symbol::new_t(word.kind())),
             )?;
 
             match action {
@@ -333,8 +333,8 @@ impl Parser {
 
                 &Shift(ref next_state) => {
                     let mut stack = self.stack.borrow_mut();
-                    let new_symbol = Symbol::new_t(&word.0);
-                    let node_id = tree.new_node(new_symbol.clone());
+                    let new_symbol = Symbol::new_t(word.kind());
+                    let node_id = tree.new_node((new_symbol.clone(), word.lexeme().clone()));
                     stack.push(StackEl::Symbol((new_symbol, Some(node_id))));
                     stack.push(StackEl::State(next_state.clone()));
 
@@ -773,14 +773,14 @@ mod tests {
 
     #[test]
     fn parse_test() {
-        fn lex(tokens: &str) -> Vec<(String, String)> {
+        fn lex(tokens: &str) -> Vec<Box<Token>> {
             if tokens.len() == 0 {
                 return vec![];
             }
             tokens
                 .split(" ")
                 .into_iter()
-                .map(|s| (s.to_string(), "".to_string()))
+                .map(|s| Box::new((s.to_string(), "".to_string())) as Box<Token>)
                 .collect()
         }
 

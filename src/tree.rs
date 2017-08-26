@@ -6,14 +6,27 @@ pub type NodeId = usize;
 
 pub struct NodeData {
     pub symbol: Symbol,
+    pub lexeme: String,
 }
 
 impl From<Symbol> for NodeData {
     fn from(symbol: Symbol) -> Self {
-        NodeData { symbol: symbol }
+        NodeData {
+            symbol: symbol,
+            lexeme: String::new(),
+        }
     }
 }
 
+// Add Lexeme information to the tree
+impl From<(Symbol, String)> for NodeData {
+    fn from(src: (Symbol, String)) -> Self {
+        NodeData {
+            symbol: src.0,
+            lexeme: src.1,
+        }
+    }
+}
 
 pub struct Node {
     pub id: NodeId,
@@ -36,7 +49,7 @@ impl Node {
 
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.data.symbol)
+        write!(f, "{} {}", self.data.symbol, self.data.lexeme)
     }
 }
 
