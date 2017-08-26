@@ -1,7 +1,10 @@
 use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
 use std::cell::RefCell;
-use super::{Symbol, Grammar, Production, EOF, Item};
+use super::{Symbol, Grammar, Production, EOF, Item, NodeId, Tree};
+
+//TODO
+//Token trait or something similar
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
@@ -12,8 +15,25 @@ pub enum Action {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StackEl {
-    Symbol(Symbol),
+    Symbol((Symbol, Option<NodeId>)),
     State(Rc<BTreeSet<Item>>),
+}
+
+impl StackEl {
+    pub fn is_symbol(&self) -> bool {
+        match self {
+            &StackEl::Symbol(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn unwrap_symbol(self) -> (Symbol, Option<NodeId>) {
+        if let StackEl::Symbol(symbol) = self {
+            return symbol
+        } else {
+            panic!("Unexpected unwrap_symbol a non symbol StackEl")
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -242,16 +262,18 @@ impl Parser {
         self.action.iter().all(|(_, actions)| actions.len() <= 1)
     }
 
-    pub fn parse<I>(&self, mut tokens: I) -> Result<(), String>
+    pub fn parse<I>(&self, mut tokens: I) -> Result<Tree, String>
     where
         I: Iterator<Item = (String, String)>,
     {
         use Action::*;
 
+        let mut tree = Tree::new();
+
         {
             let mut stack = self.stack.borrow_mut();
             *stack = vec![
-                StackEl::Symbol(Symbol::eof()),
+                StackEl::Symbol((Symbol::eof(), None)),
                 StackEl::State(self.index_to_cc.get(0).unwrap().clone()),
             ];
         }
@@ -260,14 +282,14 @@ impl Parser {
         let mut word = {
             let word = tokens.next();
             if word == None {
-                return Ok(());
+                return Ok((tree));
             }
 
             word.unwrap()
         };
 
         if word.0.as_str() == EOF {
-            return Ok(());
+            return Ok(tree);
         }
 
         loop {
@@ -278,21 +300,39 @@ impl Parser {
 
             match action {
                 &Reduce(ref prod) => {
-                    for _ in 0..prod.to.len() * 2 {
-                        self.stack.borrow_mut().pop().ok_or(format!("Empty stack"))?;
+                    let new_root = tree.new_node(prod.from.clone());
+                    tree.set_root(new_root);
+
+
+                    let to_pop = prod.to.len() * 2;
+                    let stack_len = self.stack.borrow().len();
+
+                    if to_pop > stack_len {
+                        return Err(format!("Reduce Error: empty stack"))
                     }
+
+                    let popped = self.stack.borrow_mut().split_off(stack_len - to_pop);
+                    popped.into_iter()
+                        .filter(|el| el.is_symbol())
+                        .map(|el| el.unwrap_symbol())
+                        .map(|(_, child_id)| child_id)
+                        .map(|child_id| tree.append(new_root, child_id.expect("Unexpected EOF")))
+                        .collect::<Vec<()>>();
+
 
                     let state = self.get_stacktop_state()?;
                     let next = self.get_single_goto(&(state, prod.from.clone()))?;
                     self.stack.borrow_mut().push(
-                        StackEl::Symbol(prod.from.clone()),
+                        StackEl::Symbol((prod.from.clone(), Some(new_root))),
                     );
                     self.stack.borrow_mut().push(StackEl::State(next.clone()));
                 }
 
                 &Shift(ref next_state) => {
                     let mut stack = self.stack.borrow_mut();
-                    stack.push(StackEl::Symbol(Symbol::new_t(&word.0)));
+                    let new_symbol = Symbol::new_t(&word.0);
+                    let node_id = tree.new_node(new_symbol.clone());
+                    stack.push(StackEl::Symbol((new_symbol, Some(node_id))));
                     stack.push(StackEl::State(next_state.clone()));
 
                     word = tokens.next().ok_or(
@@ -301,7 +341,7 @@ impl Parser {
                 }
 
                 &Accept => {
-                    return Ok(());
+                    return Ok((tree));
                 }
             }
         }
@@ -313,7 +353,7 @@ impl Parser {
             .borrow()
             .iter()
             .map(|el| match el {
-                &StackEl::Symbol(ref s) => s.to_string().clone(),
+                &StackEl::Symbol((ref s, ref node_id)) => format!("{} {:?}", s, node_id),
                 &StackEl::State(ref s) => self.cc_to_index.get(s).unwrap().to_string(),
             })
             .collect::<Vec<String>>()
@@ -764,6 +804,9 @@ mod tests {
             let tokens = lex(case);
             let res = parser.parse(tokens.into_iter());
             assert!(res.is_ok(), "case {:?}, res {}", case, res.err().unwrap());
+
+            println!("TREE of {}", case);
+            res.unwrap().print();
         }
     }
 

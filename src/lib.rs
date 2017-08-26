@@ -3,12 +3,14 @@ mod production;
 mod grammar;
 mod item;
 mod parser;
+mod tree;
 
 pub use symbol::*;
 pub use production::*;
 pub use grammar::*;
 pub use item::*;
 pub use parser::*;
+pub use tree::*;
 
 pub const LAMBDA: &'static str = "LAMBDA";
 pub const EOF: &'static str = "EOF";
