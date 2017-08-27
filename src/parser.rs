@@ -334,7 +334,7 @@ impl Parser {
                 &Shift(ref next_state) => {
                     let mut stack = self.stack.borrow_mut();
                     let new_symbol = Symbol::new_t(word.kind());
-                    let node_id = tree.new_node((new_symbol.clone(), word.lexeme().clone()));
+                    let node_id = tree.new_node(word);
                     stack.push(StackEl::Symbol((new_symbol, Some(node_id))));
                     stack.push(StackEl::State(next_state.clone()));
 

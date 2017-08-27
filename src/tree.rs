@@ -1,30 +1,33 @@
-use super::Symbol;
+use super::{Token, Symbol};
 use std::fmt;
 
 pub type NodeId = usize;
 
-
-pub struct NodeData {
-    pub symbol: Symbol,
-    pub lexeme: String,
+pub enum NodeData {
+    NT(Symbol),
+    Token(Box<Token>),
 }
 
 impl From<Symbol> for NodeData {
     fn from(symbol: Symbol) -> Self {
-        NodeData {
-            symbol: symbol,
-            lexeme: String::new(),
-        }
+        assert!(symbol.is_non_terminal(), "Unexpected non terminal in tree");
+        NodeData::NT(symbol)
     }
 }
 
-// Add Lexeme information to the tree
-impl From<(Symbol, String)> for NodeData {
-    fn from(src: (Symbol, String)) -> Self {
-        NodeData {
-            symbol: src.0,
-            lexeme: src.1,
+impl From<Box<Token>> for NodeData {
+    fn from(token: Box<Token>) -> Self {
+        NodeData::Token(token)
+    }
+}
+
+impl fmt::Display for NodeData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &NodeData::Token(ref token) => write!(f, "{} {}", token.kind(), token.lexeme()),
+            &NodeData::NT(ref symbol) => write!(f, "{}", symbol),
         }
+
     }
 }
 
@@ -49,7 +52,7 @@ impl Node {
 
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.data.symbol, self.data.lexeme)
+        write!(f, "{}", self.data)
     }
 }
 
