@@ -1,7 +1,7 @@
 use std::collections::{HashMap, BTreeSet};
 use std::rc::Rc;
 use std::cell::RefCell;
-use super::{Symbol, Grammar, Production, EOF, Item, NodeId, Tree, Token};
+use super::{Symbol, Grammar, Production, EOF, Item, NodeId, Tree, TokenLike};
 
 //TODO
 //Print Tree should have connected children (see algortihms/bst)
@@ -264,7 +264,7 @@ impl Parser {
 
     pub fn parse<I>(&self, mut tokens: I) -> Result<Tree, String>
     where
-        I: Iterator<Item = Box<Token>>,
+        I: Iterator<Item = Box<TokenLike>>,
     {
         use Action::*;
 
@@ -773,14 +773,16 @@ mod tests {
 
     #[test]
     fn parse_test() {
-        fn lex(tokens: &str) -> Vec<Box<Token>> {
+        fn lex(tokens: &str) -> Vec<Box<TokenLike>> {
             if tokens.len() == 0 {
                 return vec![];
             }
             tokens
                 .split(" ")
                 .into_iter()
-                .map(|s| Box::new((s.to_string(), "".to_string())) as Box<Token>)
+                .map(|s| {
+                    Box::new((s.to_string(), "".to_string())) as Box<TokenLike>
+                })
                 .collect()
         }
 

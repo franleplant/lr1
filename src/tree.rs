@@ -1,11 +1,11 @@
-use super::{Token, Symbol};
+use super::{TokenLike, Symbol};
 use std::fmt;
 
 pub type NodeId = usize;
 
 pub enum NodeData {
     NT(Symbol),
-    Token(Box<Token>),
+    Token(Box<TokenLike>),
 }
 
 impl From<Symbol> for NodeData {
@@ -15,8 +15,8 @@ impl From<Symbol> for NodeData {
     }
 }
 
-impl From<Box<Token>> for NodeData {
-    fn from(token: Box<Token>) -> Self {
+impl From<Box<TokenLike>> for NodeData {
+    fn from(token: Box<TokenLike>) -> Self {
         NodeData::Token(token)
     }
 }
