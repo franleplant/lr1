@@ -148,12 +148,17 @@ impl Parser {
 
         self.insert_cc(cc0);
 
+        let mut done = BTreeSet::new();
+
         while !new_cc.is_empty() {
             cc = cc.union(&new_cc).cloned().collect();
             new_cc.clear();
 
             //println!("\nBUILD_CC>>>CC \n{}", Item::set_of_sets_to_string(&cc));
             for cc_i in &cc {
+                if done.contains(cc_i) {
+                    continue;
+                }
                 for item in cc_i.iter() {
                     if item.is_complete() {
                         let entry = self.action
@@ -197,6 +202,8 @@ impl Parser {
                     }
 
                 }
+
+                done.insert(cc_i.clone());
             }
         }
 
